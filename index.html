@@ -10,6 +10,39 @@
 <!--  Single-file app. Edit the CONFIG block below, then deploy.    -->
 <!-- ============================================================= -->
 
+<!-- Safety net: if anything fails to load or render, show the error on-screen
+     instead of a blank white page. (Registered first so it catches everything.) -->
+<script>
+(function () {
+  var errs = [];
+  function render() {
+    var root = document.getElementById('root');
+    if (!root || root.hasChildNodes() || !errs.length) return;
+    root.innerHTML =
+      '<div style="max-width:640px;margin:40px auto;padding:20px;font:14px/1.6 system-ui,sans-serif;color:#7a1f1f;background:#fdeaea;border:1px solid #f3b4b4;border-radius:12px">' +
+      '<b>The app hit an error and could not start.</b><br><br>' +
+      '<code style="white-space:pre-wrap;word-break:break-word">' + errs.join('<br>') + '</code><br><br>' +
+      '<span style="color:#666">Copy this text and send it to Claude.</span></div>';
+  }
+  function add(m) { errs.push(String(m)); render(); }
+  window.addEventListener('error', function (e) {
+    if (e.target && (e.target.src || e.target.href)) add('Failed to load: ' + (e.target.src || e.target.href));
+    else add((e.message || 'Unknown error') + (e.lineno ? (' — line ' + e.lineno) : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    add('Promise error: ' + ((e.reason && e.reason.message) || e.reason || 'unknown'));
+  });
+  document.addEventListener('DOMContentLoaded', render);
+  setTimeout(function () {
+    var root = document.getElementById('root');
+    if (root && !root.hasChildNodes()) {
+      if (!errs.length) add('The app loaded but never rendered. Open the browser console and send the red error text.');
+      else render();
+    }
+  }, 3500);
+})();
+</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
