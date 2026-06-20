@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Château de Fretoy Carpool</title>
+
+<!-- ============================================================= -->
+<!--  FRIENDS CARPOOLING  ·  Paris → Château de Fretoy, Morlet      -->
+<!--  Single-file app. Edit the CONFIG block below, then deploy.    -->
+<!-- ============================================================= -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Space Grotesk', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        colors: {
+          go:    { DEFAULT: '#1FA971', dark: '#178A5C', soft: '#E6F6EE' },
+          ink:   '#16181D',
+          muted: '#6B7280',
+          line:  '#E6E8EC',
+          paper: '#F5F6F8',
+          sun:   { DEFAULT: '#FFD66B', soft: '#FFF6DE' },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- Firebase (compat build — plays nicely with the React CDN setup) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<!-- React via CDN -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html { -webkit-text-size-adjust: 100%; }
+  body { font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; background: #F5F6F8; color: #16181D; -webkit-font-smoothing: antialiased; }
+  * { font-variant-numeric: tabular-nums; }
+  .fade-in { animation: fade .35s ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } }
+  /* hide number input spinners for a cleaner look */
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* =================================================================
+   CONFIG  —  EDIT THESE  (everything you'd ever change lives here)
+   ================================================================= */
+
+// 1) PASTE your Firebase config object here (from the Firebase console).
+//    Replace the placeholder values with the real ones.
+const firebaseConfig = {
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "PASTE.firebaseapp.com",
+  projectId: "PASTE_PROJECT_ID",
+  storageBucket: "PASTE.appspot.com",
+  messagingSenderId: "PASTE",
+  appId: "PASTE",
+};
+
+// 2) Your admin password (used for the Admin tab).
+const ADMIN_PASSWORD = "jim";
+
+// 3) Wedding header + venue text — change freely.
+const HEADER_TITLE = "Château de Fretoy Carpool";
+const HEADER_SUB   = "Getting everyone from Paris to Morlet · June 30 – July 3";
+const VENUE_NAME   = "Château de Fretoy"; // full name, used in copy
+const VENUE_SHORT  = "Fretoy";            // short name, used in the route ribbon
+
+// 4) Trip defaults.
+const DEFAULT_ARRIVAL_DATE   = "2026-06-30"; // check-in is 4pm Jun 30
+const DEFAULT_DEPARTURE_DATE = "2026-07-03"; // check-out before 5pm Jul 3
+const SEATS_PER_CAR = 5;
+
+// 5) Rental car links (per pickup point). I couldn't verify deep links
+//    live, so these go to each company's main booking site where you pick
+//    the location. Swap in exact location URLs anytime if you'd like.
+const RENTAL_SPOTS = [
+  { place: "Charles de Gaulle (CDG)", note: "Main airport for Paris arrivals",
+    links: [
+      { name: "Budget",     url: "https://www.budget.com" },
+      { name: "Enterprise", url: "https://www.enterprise.com" },
+      { name: "Sixt",       url: "https://www.sixt.com" },
+    ] },
+  { place: "Le Creusot TGV station", note: "Closest train station to Morlet",
+    links: [
+      { name: "Budget",     url: "https://www.budget.com" },
+      { name: "Enterprise", url: "https://www.enterprise.com" },
+      { name: "Sixt",       url: "https://www.sixt.com" },
+    ] },
+  { place: "Geneva Airport (GVA)", note: "For Geneva arrivals / departures",
+    links: [
+      { name: "Budget",     url: "https://www.budget.ch" },
+      { name: "Enterprise", url: "https://www.enterprise.com" },
+      { name: "Sixt",       url: "https://www.sixt.com" },
+    ] },
+];
+
+const AIRPORTS = ["CDG", "Geneva", "Other"];
+const WILLING = [
+  { key: "yes",   label: "Yes, I can hold the rental" },
+  { key: "maybe", label: "Maybe / open to it" },
+  { key: "no",    label: "No, I'd ride along" },
+];
+
+/* =================================================================
+   Firebase init (graceful if config not pasted yet)
+   ================================================================= */
+let db = null;
+let CONFIGURED = false;
+try {
+  if (firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PASTE")) {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    CONFIGURED = true;
+  }
+} catch (e) { console.error("Firebase init failed:", e); }
+
+/* =================================================================
+   Helpers
+   ================================================================= */
+const LS_KEY = "flcp_owned_v1";
+
+function loadOwned() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; }
+}
+function saveOwned(list) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch {}
+}
+function genCode() {
+  const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = ""; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
+  return s;
+}
+function genId() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+
+function airportLabel(e, which) {
+  const a = which === "arr" ? e.arrivalAirport : e.departureAirport;
+  if (a === "Other") return (which === "arr" ? e.arrivalAirportOther : e.departureAirportOther) || "Other";
+  return a;
+}
+function fmtDate(d) {
+  if (!d) return "";
+  const dt = new Date(d + "T00:00:00");
+  if (isNaN(dt)) return d;
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+const norm = (s) => (s || "").trim().toLowerCase();
+
+function arrKey(e) {
+  const base = e.arrivalAirport === "Other" ? "O:" + norm(e.arrivalAirportOther) : e.arrivalAirport;
+  return base + "|" + e.arrivalDate;
+}
+function depKey(e) {
+  const base = e.departureAirport === "Other" ? "O:" + norm(e.departureAirportOther) : e.departureAirport;
+  return base + "|" + e.departureDate;
+}
+
+/* =================================================================
+   Small UI atoms
+   ================================================================= */
+function Chip({ children, tone = "neutral" }) {
+  const tones = {
+    neutral: "bg-paper text-muted border-line",
+    go:      "bg-go-soft text-go-dark border-go/30",
+    sun:     "bg-sun-soft text-[#8a6d1f] border-sun/50",
+    plain:   "bg-white text-ink border-line",
+  };
+  return <span className={"inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium " + tones[tone]}>{children}</span>;
+}
+
+function RouteRibbon({ e }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs font-medium text-ink">
+      <span className="inline-flex items-center gap-1">✈ {airportLabel(e, "arr")}</span>
+      <span className="text-line">———</span>
+      <span>🏰 {VENUE_SHORT}</span>
+      <span className="text-line">———</span>
+      <span className="inline-flex items-center gap-1">{airportLabel(e, "dep")} ✈</span>
+    </div>
+  );
+}
+
+function Btn({ children, onClick, kind = "primary", type = "button", disabled, className = "" }) {
+  const base = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-go/60 disabled:opacity-40 disabled:active:scale-100";
+  const kinds = {
+    primary: "bg-go text-white hover:bg-go-dark shadow-sm",
+    ghost:   "bg-white text-ink border border-line hover:border-ink/30",
+    subtle:  "bg-paper text-ink hover:bg-line/60",
+    danger:  "bg-white text-red-600 border border-red-200 hover:bg-red-50",
+  };
+  return <button type={type} onClick={onClick} disabled={disabled} className={base + " " + kinds[kind] + " " + className}>{children}</button>;
+}
+
+function Field({ label, children, hint }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-ink">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
+    </label>
+  );
+}
+const inputCls = "w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted/70 focus:border-go focus:outline-none focus:ring-2 focus:ring-go/30";
+
+/* =================================================================
+   Entry form (used for Add + Edit)
+   ================================================================= */
+function EntryForm({ initial, onSave, onCancel, saving }) {
+  const [f, setF] = useState(() => initial || {
+    name: "", partySize: 2,
+    arrivalAirport: "CDG", arrivalAirportOther: "", arrivalDate: DEFAULT_ARRIVAL_DATE,
+    departureAirport: "CDG", departureAirportOther: "", departureDate: DEFAULT_DEPARTURE_DATE,
+    rentalWillingness: "maybe",
+  });
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const valid = f.name.trim() && f.partySize >= 1 &&
+    (f.arrivalAirport !== "Other" || f.arrivalAirportOther.trim()) &&
+    (f.departureAirport !== "Other" || f.departureAirportOther.trim());
+
+  return (
+    <div className="space-y-4">
+      <Field label="Your name(s)" hint="Add everyone in your party, e.g. “Sarah & Tom Garcia”">
+        <input className={inputCls} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Sarah & Tom Garcia" />
+      </Field>
+
+      <Field label="How many of you?" hint={"Used to fit people into cars (" + SEATS_PER_CAR + " seats each)."}>
+        <input className={inputCls + " w-28"} type="number" min="1" max="12" value={f.partySize}
+               onChange={(e) => set("partySize", Math.max(1, parseInt(e.target.value || "1", 10)))} />
+      </Field>
+
+      <div className="rounded-2xl border border-line bg-paper/60 p-4 space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-muted">Flying in ✈</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Arrival airport">
+            <select className={inputCls} value={f.arrivalAirport} onChange={(e) => set("arrivalAirport", e.target.value)}>
+              {AIRPORTS.map((a) => <option key={a}>{a}</option>)}
+            </select>
+          </Field>
+          <Field label="Arrival date">
+            <input className={inputCls} type="date" value={f.arrivalDate} onChange={(e) => set("arrivalDate", e.target.value)} />
+          </Field>
+        </div>
+        {f.arrivalAirport === "Other" &&
+          <input className={inputCls} placeholder="Which airport / station?" value={f.arrivalAirportOther} onChange={(e) => set("arrivalAirportOther", e.target.value)} />}
+      </div>
+
+      <div className="rounded-2xl border border-line bg-paper/60 p-4 space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-muted">Flying out 🏰→✈</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Departure airport">
+            <select className={inputCls} value={f.departureAirport} onChange={(e) => set("departureAirport", e.target.value)}>
+              {AIRPORTS.map((a) => <option key={a}>{a}</option>)}
+            </select>
+          </Field>
+          <Field label="Departure date">
+            <input className={inputCls} type="date" value={f.departureDate} onChange={(e) => set("departureDate", e.target.value)} />
+          </Field>
+        </div>
+        {f.departureAirport === "Other" &&
+          <input className={inputCls} placeholder="Which airport / station?" value={f.departureAirportOther} onChange={(e) => set("departureAirportOther", e.target.value)} />}
+      </div>
+
+      <Field label="Could you be the rental car holder?" hint="Round-trippers at one airport are usually cheapest to hold the car (no drop-off fee).">
+        <div className="grid gap-2">
+          {WILLING.map((w) => (
+            <button key={w.key} type="button" onClick={() => set("rentalWillingness", w.key)}
+              className={"rounded-xl border px-3.5 py-2.5 text-left text-sm font-medium transition " +
+                (f.rentalWillingness === w.key ? "border-go bg-go-soft text-go-dark" : "border-line bg-white text-ink hover:border-ink/30")}>
+              {w.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <div className="flex gap-2 pt-1">
+        <Btn onClick={() => onSave(f)} disabled={!valid || saving} className="flex-1">{saving ? "Saving…" : "Save"}</Btn>
+        <Btn kind="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* =================================================================
+   Pool tab
+   ================================================================= */
+function EntryCard({ e, owned, isAdmin, onEdit, onDelete }) {
+  const canManage = owned || isAdmin;
+  const wTone = e.rentalWillingness === "yes" ? "go" : e.rentalWillingness === "maybe" ? "sun" : "neutral";
+  const wText = e.rentalWillingness === "yes" ? "Can hold rental" : e.rentalWillingness === "maybe" ? "Maybe holds rental" : "Riding along";
+  return (
+    <div className="fade-in rounded-2xl border border-line bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-base font-bold text-ink">{e.name}</h3>
+            <Chip tone="plain">{e.partySize} {e.partySize === 1 ? "person" : "people"}</Chip>
+          </div>
+          <div className="mt-2"><RouteRibbon e={e} /></div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Chip>In · {fmtDate(e.arrivalDate)}</Chip>
+            <Chip>Out · {fmtDate(e.departureDate)}</Chip>
+            <Chip tone={wTone}>{wText}</Chip>
+            {e.arrivalGroupId && <Chip tone="go">In a ride-in group</Chip>}
+            {e.departureGroupId && <Chip tone="go">In a ride-out group</Chip>}
+          </div>
+        </div>
+        {canManage && (
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <Btn kind="subtle" className="!px-3 !py-1.5 !text-xs" onClick={() => onEdit(e)}>Edit</Btn>
+            <Btn kind="danger" className="!px-3 !py-1.5 !text-xs" onClick={() => onDelete(e)}>Delete</Btn>
+          </div>
+        )}
+      </div>
+      {owned && !isAdmin && <p className="mt-3 text-xs text-muted">This is you — only you can edit it on this device.</p>}
+    </div>
+  );
+}
+
+function PoolTab({ entries, isOwned, isAdmin, onAdd, onEdit, onDelete, onClaim }) {
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const tryClaim = () => {
+    const hit = entries.find((e) => norm(e.editCode) === norm(code));
+    if (hit) { onClaim(hit); setMsg("Found “" + hit.name + "” — you can now edit it here."); setCode(""); }
+    else setMsg("No match for that code. Double-check it.");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-ink">Who's coming <span className="text-muted font-medium">({entries.length})</span></h2>
+        <Btn onClick={onAdd}>+ Add yourself</Btn>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-line bg-white p-8 text-center">
+          <p className="text-base font-semibold text-ink">No one's in the pool yet.</p>
+          <p className="mt-1 text-sm text-muted">Be the first — add your party and pick your airports.</p>
+          <div className="mt-4 flex justify-center"><Btn onClick={onAdd}>+ Add yourself</Btn></div>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {entries.map((e) => (
+            <EntryCard key={e.id} e={e} owned={isOwned(e)} isAdmin={isAdmin}
+              onEdit={onEdit} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-line bg-white p-4">
+        {!claimOpen ? (
+          <button className="text-sm font-medium text-go-dark hover:underline" onClick={() => setClaimOpen(true)}>
+            Editing from a new device? Enter your code →
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-ink">Unlock your entry on this device</p>
+            <p className="text-xs text-muted">Enter the 6-character code you got when you first added yourself.</p>
+            <div className="flex gap-2">
+              <input className={inputCls + " uppercase tracking-widest"} value={code} maxLength={6}
+                     onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="ABC123" />
+              <Btn kind="ghost" onClick={tryClaim}>Find</Btn>
+            </div>
+            {msg && <p className="text-xs text-muted">{msg}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =================================================================
+   Carpools tab  (Arrival / Departure)
+   ================================================================= */
+function groupsFromEntries(entries, dir) {
+  const idKey = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+  const map = {};
+  entries.forEach((e) => {
+    const g = e[idKey];
+    if (g) { (map[g] = map[g] || []).push(e); }
+  });
+  return map;
+}
+
+function seatLine(members) {
+  const total = members.reduce((s, m) => s + (m.partySize || 1), 0);
+  let tone = "go", text;
+  if (total < SEATS_PER_CAR) text = total + " of " + SEATS_PER_CAR + " seats — room for more";
+  else if (total === SEATS_PER_CAR) { text = "Full car — " + total + " of " + SEATS_PER_CAR; }
+  else { tone = "sun"; text = total + " people — you'll need a van or a 2nd car"; }
+  return { total, tone, text };
+}
+
+function rentalHint(members, groupAirport) {
+  // Cheapest holder = someone round-trip at THIS airport (no drop-off fee).
+  const rt = members.filter((m) => airportLabel(m, "arr") === airportLabel(m, "dep") && airportLabel(m, "arr") === groupAirport);
+  if (rt.length === 0) return { kind: "none" };
+  const willing = rt.filter((m) => m.rentalWillingness === "yes");
+  const maybe = rt.filter((m) => m.rentalWillingness === "maybe");
+  const pick = (willing[0] || maybe[0] || rt[0]);
+  return { kind: "found", pick, all: rt };
+}
+
+function GroupBlock({ members, dir, myEntry, onJoin, onLeave }) {
+  const groupAirport = airportLabel(members[0], dir === "arr" ? "arr" : "dep");
+  const seats = seatLine(members);
+  const names = members.map((m) => m.name).join(", ");
+  const inThis = myEntry && members.some((m) => m.id === myEntry.id);
+  const hint = dir === "arr" ? rentalHint(members, groupAirport) : null;
+
+  return (
+    <div className="rounded-2xl border border-line bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-bold text-ink">{names}</p>
+        <Chip tone={seats.tone}>{seats.text}</Chip>
+      </div>
+
+      {dir === "arr" && hint && hint.kind === "found" && (
+        <div className="mt-3 rounded-xl border border-sun/50 bg-sun-soft px-3 py-2 text-xs text-[#7a5e18]">
+          💡 <b>{hint.pick.name}</b> {hint.all.length > 1 ? "(and others) are" : "is"} round-trip via {groupAirport} — likely the cheapest to hold the rental (no drop-off fee).
+        </div>
+      )}
+      {dir === "arr" && hint && hint.kind === "none" && (
+        <div className="mt-3 rounded-xl border border-line bg-paper px-3 py-2 text-xs text-muted">
+          Heads up: no one here is round-trip via {groupAirport}, so whoever holds the car may pay a one-way drop-off fee. Worth coordinating.
+        </div>
+      )}
+
+      <div className="mt-3">
+        {inThis
+          ? <Btn kind="danger" className="!py-2 !text-xs" onClick={() => onLeave()}>Leave this group</Btn>
+          : myEntry && <Btn kind="ghost" className="!py-2 !text-xs" onClick={() => onJoin(members[0])}>Join this group</Btn>}
+      </div>
+    </div>
+  );
+}
+
+/* =================================================================
+   Cars tab
+   ================================================================= */
+function CarsTab() {
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold text-ink">Need a car?</h2>
+
+      <div className="rounded-2xl border border-sun/50 bg-sun-soft p-4 text-sm text-[#7a5e18]">
+        💡 <b>Who should hold the rental?</b> Whoever flies <i>in and out of the same airport</i> (a round trip) is almost always the cheapest renter — picking up and dropping off at one location avoids one-way drop-off fees. If your group mixes airports (say, in to CDG, out of Geneva), let the round-trip person take the car.
+      </div>
+
+      <div className="grid gap-3">
+        {RENTAL_SPOTS.map((spot) => (
+          <div key={spot.place} className="rounded-2xl border border-line bg-white p-4">
+            <p className="text-base font-bold text-ink">{spot.place}</p>
+            <p className="text-xs text-muted">{spot.note}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {spot.links.map((l) => (
+                <a key={l.name} href={l.url} target="_blank" rel="noopener noreferrer"
+                   className="inline-flex items-center gap-1 rounded-xl border border-line bg-paper px-3 py-2 text-sm font-semibold text-ink hover:border-go hover:bg-go-soft">
+                  {l.name} ↗
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-muted">Links open each company's main booking site — pick your exact location and dates there.</p>
+    </div>
+  );
+}
+
+/* =================================================================
+   Admin tab
+   ================================================================= */
+function AdminTab({ entries, authed, onAuth, onEdit, onDelete, onKick }) {
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+
+  if (!authed) {
+    return (
+      <div className="mx-auto max-w-sm space-y-3 rounded-2xl border border-line bg-white p-6">
+        <h2 className="text-lg font-bold text-ink">Admin</h2>
+        <p className="text-sm text-muted">Enter the admin password to edit or remove anyone's entry.</p>
+        <input className={inputCls} type="password" value={pw} placeholder="Password"
+               onChange={(e) => setPw(e.target.value)}
+               onKeyDown={(e) => { if (e.key === "Enter") { onAuth(pw) ? setErr("") : setErr("Wrong password."); } }} />
+        <Btn className="w-full" onClick={() => { onAuth(pw) ? setErr("") : setErr("Wrong password."); }}>Unlock</Btn>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-ink">Admin · all entries ({entries.length})</h2>
+      </div>
+      <div className="grid gap-3">
+        {entries.map((e) => (
+          <div key={e.id} className="rounded-2xl border border-line bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-bold text-ink">{e.name} <span className="font-medium text-muted">· {e.partySize}p</span></p>
+                <div className="mt-1.5"><RouteRibbon e={e} /></div>
+                <p className="mt-1 text-xs text-muted">In {fmtDate(e.arrivalDate)} · Out {fmtDate(e.departureDate)} · code {e.editCode}</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {e.arrivalGroupId && <Chip tone="go">in-group</Chip>}
+                  {e.departureGroupId && <Chip tone="go">out-group</Chip>}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col gap-1.5">
+                <Btn kind="subtle" className="!px-3 !py-1.5 !text-xs" onClick={() => onEdit(e)}>Edit</Btn>
+                <Btn kind="danger" className="!px-3 !py-1.5 !text-xs" onClick={() => onDelete(e)}>Delete</Btn>
+              </div>
+            </div>
+            {(e.arrivalGroupId || e.departureGroupId) && (
+              <div className="mt-2 flex gap-2">
+                {e.arrivalGroupId && <button className="text-xs font-medium text-muted hover:text-red-600" onClick={() => onKick(e, "arr")}>Remove from ride-in group</button>}
+                {e.departureGroupId && <button className="text-xs font-medium text-muted hover:text-red-600" onClick={() => onKick(e, "dep")}>Remove from ride-out group</button>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* =================================================================
+   Root App
+   ================================================================= */
+function App() {
+  const [entries, setEntries] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("pool");
+  const [owned, setOwned] = useState(loadOwned);          // [{id, code}]
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+  const [form, setForm] = useState(null);                 // {mode:'add'|'edit', entry?}
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 3500); };
+
+  // Live data
+  useEffect(() => {
+    if (!CONFIGURED) { setLoaded(true); return; }
+    const unsub = db.collection("entries").orderBy("createdAt", "asc").onSnapshot(
+      (snap) => {
+        setEntries(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoaded(true);
+      },
+      (err) => { console.error(err); setLoaded(true); flash("Couldn't reach the database."); }
+    );
+    return () => unsub();
+  }, []);
+
+  const ownedIds = useMemo(() => new Set(owned.map((o) => o.id)), [owned]);
+  const isOwned = (e) => ownedIds.has(e.id);
+  const myEntries = entries.filter(isOwned);
+
+  // ---- CRUD ----
+  const addEntry = async (f) => {
+    if (!CONFIGURED) { flash("Add your Firebase config first."); return; }
+    setSaving(true);
+    try {
+      const code = genCode();
+      const ref = await db.collection("entries").add({
+        ...f, editCode: code, arrivalGroupId: null, departureGroupId: null,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      const next = [...owned, { id: ref.id, code }];
+      setOwned(next); saveOwned(next);
+      setForm(null);
+      flash("You're in! Your edit code is " + code + " — save it to edit from another device.");
+    } catch (e) { console.error(e); flash("Save failed."); }
+    setSaving(false);
+  };
+
+  const updateEntry = async (id, patch) => {
+    if (!CONFIGURED) return;
+    try { await db.collection("entries").doc(id).update(patch); }
+    catch (e) { console.error(e); flash("Update failed."); }
+  };
+
+  const saveEdit = async (f) => {
+    setSaving(true);
+    await updateEntry(form.entry.id, {
+      name: f.name, partySize: f.partySize,
+      arrivalAirport: f.arrivalAirport, arrivalAirportOther: f.arrivalAirportOther, arrivalDate: f.arrivalDate,
+      departureAirport: f.departureAirport, departureAirportOther: f.departureAirportOther, departureDate: f.departureDate,
+      rentalWillingness: f.rentalWillingness,
+    });
+    setSaving(false); setForm(null); flash("Saved.");
+  };
+
+  const deleteEntry = async (e) => {
+    if (!window.confirm("Remove “" + e.name + "” from the carpool?")) return;
+    try {
+      await db.collection("entries").doc(e.id).delete();
+      const next = owned.filter((o) => o.id !== e.id); setOwned(next); saveOwned(next);
+      flash("Removed.");
+    } catch (err) { console.error(err); flash("Delete failed."); }
+  };
+
+  // ---- grouping (direction-aware) ----
+  const joinGroup = (dir) => async (me, groupId) => {
+    const k = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+    await updateEntry(me.id, { [k]: groupId });
+    flash("Joined.");
+  };
+  const leaveGroup = (dir) => async (me) => {
+    const k = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+    await updateEntry(me.id, { [k]: null });
+    flash("Left the group.");
+  };
+  const startWith = (dir) => async (me, other) => {
+    const k = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+    const gid = genId();
+    await updateEntry(me.id, { [k]: gid });
+    await updateEntry(other.id, { [k]: gid });
+    flash("Group started.");
+  };
+
+  const claim = (e) => {
+    if (ownedIds.has(e.id)) return;
+    const next = [...owned, { id: e.id, code: e.editCode }];
+    setOwned(next); saveOwned(next);
+  };
+
+  const adminKick = async (e, dir) => {
+    const k = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+    await updateEntry(e.id, { [k]: null });
+    flash("Removed from group.");
+  };
+
+  const TABS = [
+    ["pool", "Pool"],
+    ["carpools", "Carpools"],
+    ["cars", "Cars"],
+    ["admin", "Admin"],
+  ];
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
+        <div className="mx-auto max-w-2xl px-4 py-3">
+          <h1 className="text-xl font-bold tracking-tight text-ink">{HEADER_TITLE}</h1>
+          <p className="text-xs text-muted">{HEADER_SUB}</p>
+          <nav className="mt-3 flex gap-1">
+            {TABS.map(([k, l]) => (
+              <button key={k} onClick={() => setTab(k)}
+                className={"rounded-lg px-3 py-1.5 text-sm font-semibold transition " +
+                  (tab === k ? "bg-ink text-white" : "text-muted hover:bg-line/50 hover:text-ink")}>{l}</button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* Config warning */}
+      {!CONFIGURED && (
+        <div className="mx-auto mt-4 max-w-2xl px-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <b>Not connected yet.</b> Paste your Firebase config into the CONFIG block at the top of this file, then redeploy. Until then, nothing will save.
+          </div>
+        </div>
+      )}
+
+      <main className="mx-auto max-w-2xl px-4 py-6 pb-24">
+        {!loaded ? (
+          <p className="py-16 text-center text-muted">Loading…</p>
+        ) : (
+          <>
+            {tab === "pool" && (
+              <PoolTab entries={entries} isOwned={isOwned} isAdmin={adminAuthed}
+                onAdd={() => setForm({ mode: "add" })}
+                onEdit={(e) => setForm({ mode: "edit", entry: e })}
+                onDelete={deleteEntry} onClaim={claim} />
+            )}
+
+            {tab === "carpools" && (
+              <CarpoolsTabWrapper
+                entries={entries} myEntries={myEntries}
+                activeId={activeId} onPickActive={setActiveId}
+                joinGroup={joinGroup} leaveGroup={leaveGroup} startWith={startWith} />
+            )}
+
+            {tab === "cars" && <CarsTab />}
+
+            {tab === "admin" && (
+              <AdminTab entries={entries} authed={adminAuthed}
+                onAuth={(pw) => { const ok = pw === ADMIN_PASSWORD; if (ok) setAdminAuthed(true); return ok; }}
+                onEdit={(e) => setForm({ mode: "edit", entry: e })}
+                onDelete={deleteEntry} onKick={adminKick} />
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Form modal */}
+      {form && (
+        <div className="fixed inset-0 z-30 flex items-end justify-center bg-ink/30 p-0 sm:items-center sm:p-4" onClick={() => setForm(null)}>
+          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 sm:rounded-3xl fade-in" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-4 text-lg font-bold text-ink">{form.mode === "add" ? "Add yourself" : "Edit entry"}</h2>
+            <EntryForm initial={form.entry} saving={saving}
+              onCancel={() => setForm(null)}
+              onSave={form.mode === "add" ? addEntry : saveEdit} />
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-xl bg-ink px-4 py-3 text-sm font-medium text-white shadow-lg fade-in max-w-[92vw] text-center">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Wrapper so Carpools gets direction-correct handlers without prop soup */
+function CarpoolsTabWrapper({ entries, myEntries, activeId, onPickActive, joinGroup, leaveGroup, startWith }) {
+  const [dir, setDir] = useState("arr");
+  // Re-render CarpoolsTab but feed it dir-bound handlers. We lift dir here so
+  // the join/leave/start calls always use the correct arrival/departure field.
+  return (
+    <CarpoolsTabInner
+      entries={entries} myEntries={myEntries} activeId={activeId} onPickActive={onPickActive}
+      dir={dir} setDir={setDir}
+      onJoin={(me, gid) => joinGroup(dir)(me, gid)}
+      onLeave={(me) => leaveGroup(dir)(me)}
+      onStart={(me, other) => startWith(dir)(me, other)} />
+  );
+}
+
+/* CarpoolsTabInner = CarpoolsTab but with dir controlled from the wrapper */
+function CarpoolsTabInner({ entries, myEntries, onJoin, onLeave, onStart, onPickActive, activeId, dir, setDir }) {
+  const myEntry = myEntries.find((e) => e.id === activeId) || myEntries[0] || null;
+  const groupIdKey = dir === "arr" ? "arrivalGroupId" : "departureGroupId";
+  const keyFn = dir === "arr" ? arrKey : depKey;
+
+  const groups = groupsFromEntries(entries, dir);
+  const myKey = myEntry ? keyFn(myEntry) : null;
+  const compatible = myEntry ? entries.filter((e) => keyFn(e) === myKey) : [];
+  const compatibleGroups = Object.entries(groups).filter(([gid, mem]) => keyFn(mem[0]) === myKey);
+  const ungrouped = compatible.filter((e) => !e[groupIdKey] && e.id !== myEntry?.id);
+  const myGroupId = myEntry ? myEntry[groupIdKey] : null;
+  const allGroups = Object.entries(groups);
+  const placeLabel = (e) => airportLabel(e, dir === "arr" ? "arr" : "dep") + " · " + fmtDate(dir === "arr" ? e.arrivalDate : e.departureDate);
+
+  return (
+    <div className="space-y-4">
+      <div className="inline-flex rounded-xl border border-line bg-white p-1">
+        {[["arr", "Ride in ✈→🏰"], ["dep", "Ride out 🏰→✈"]].map(([k, l]) => (
+          <button key={k} onClick={() => setDir(k)}
+            className={"rounded-lg px-3.5 py-1.5 text-sm font-semibold transition " + (dir === k ? "bg-go text-white" : "text-muted hover:text-ink")}>{l}</button>
+        ))}
+      </div>
+
+      <p className="text-sm text-muted">
+        {dir === "arr"
+          ? "Group up with people who share your arrival airport + date for the drive to " + VENUE_NAME + "."
+          : "Group up with people who share your departure airport + date for the drive back."}
+      </p>
+
+      {!myEntry ? (
+        <div className="rounded-2xl border border-dashed border-line bg-white p-6 text-center">
+          <p className="font-semibold text-ink">Add yourself to the pool first.</p>
+          <p className="mt-1 text-sm text-muted">Once you're in, you can join or start a carpool here.</p>
+        </div>
+      ) : (
+        <>
+          {myEntries.length > 1 && (
+            <Field label="Acting as">
+              <select className={inputCls} value={myEntry.id} onChange={(e) => onPickActive(e.target.value)}>
+                {myEntries.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </Field>
+          )}
+
+          <div className="rounded-2xl bg-go-soft/70 border border-go/20 p-4">
+            <p className="text-sm">You're <b>{myEntry.name}</b> · {placeLabel(myEntry)} — showing everyone who matches.</p>
+          </div>
+
+          {compatibleGroups.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted">Groups you can join</p>
+              {compatibleGroups.map(([gid, mem]) => (
+                <GroupBlock key={gid} members={mem} dir={dir} myEntry={myEntry}
+                  onJoin={() => onJoin(myEntry, gid)} onLeave={() => onLeave(myEntry)} />
+              ))}
+            </div>
+          )}
+
+          {!myGroupId && ungrouped.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-muted">Not grouped yet — start a ride together</p>
+              {ungrouped.map((e) => (
+                <div key={e.id} className="flex items-center justify-between rounded-2xl border border-line bg-white p-4">
+                  <div>
+                    <p className="text-sm font-bold text-ink">{e.name}</p>
+                    <p className="text-xs text-muted">{e.partySize} {e.partySize === 1 ? "person" : "people"}</p>
+                  </div>
+                  <Btn kind="ghost" className="!py-2 !text-xs" onClick={() => onStart(myEntry, e)}>Start a group</Btn>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!myGroupId && ungrouped.length === 0 && compatibleGroups.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-line bg-white p-6 text-center">
+              <p className="text-sm text-muted">No one else matches your {dir === "arr" ? "arrival" : "departure"} airport + date yet. Check back as more people sign up.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {allGroups.length > 0 && (
+        <details className="rounded-2xl border border-line bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-ink">See all {dir === "arr" ? "ride-in" : "ride-out"} groups</summary>
+          <div className="mt-3 space-y-2">
+            {allGroups.map(([gid, mem]) => (
+              <div key={gid} className="rounded-xl bg-paper p-3">
+                <p className="text-xs font-bold text-muted">{airportLabel(mem[0], dir === "arr" ? "arr" : "dep")} · {fmtDate(dir === "arr" ? mem[0].arrivalDate : mem[0].departureDate)}</p>
+                <p className="text-sm text-ink">{mem.map((m) => m.name).join(", ")}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
