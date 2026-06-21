@@ -240,8 +240,11 @@ function saveOwned(l){ try { localStorage.setItem(LS_KEY, JSON.stringify(l)); } 
 var state = {
   entries: [], messages: [], loaded: !CONFIGURED, tab: "pool",
   owned: loadOwned(), admin: false, dir: "arr", boardScope: "general",
-  activeId: null, form: null, claimOpen: false
+  activeId: null, form: null, claimOpen: false, howto: false
 };
+var HOWTO_KEY = "flcp_howto_seen_v1";
+function seenHowto(){ try { return localStorage.getItem(HOWTO_KEY)==="1"; } catch(e){ return false; } }
+function markHowtoSeen(){ try { localStorage.setItem(HOWTO_KEY,"1"); } catch(e){} }
 var SEEN_KEY = "flcp_board_seen_v1";
 function loadSeen(){ try { return parseInt(localStorage.getItem(SEEN_KEY)||"0",10)||0; } catch(e){ return 0; } }
 function markSeen(){ try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch(e){} }
@@ -640,6 +643,29 @@ function adminTab(){
   return h;
 }
 
+function howtoModal(){
+  var steps=[
+    ["📝","Add yourself","Tap “+ Add yourself” and enter your name(s), how many of you, your airports + travel dates, whether you’ve booked a car, and (optionally) your WhatsApp."],
+    ["🔑","Your first name is your edit code","That’s all you need to change your details later — even from a different phone."],
+    ["🧭","Find your carpool","Open Carpools, choose Ride in or Ride out, then join or start a group with people sharing that airport + date. The two are separate — you can ride in with one group and out with another."],
+    ["💡","Figure out who drives","Whoever’s round-trip through the same airport is usually cheapest to rent, and the app flags them. Already booked a car? Add your open seats so others can hop in."],
+    ["💬","Message people","Use the Messaging tab for a general chat or your private group chats — or tap WhatsApp / Copy on someone’s card to reach them directly."],
+    ["🚙","Need a rental?","The Cars tab has booking links for each pickup point, plus a tip on keeping costs down."]
+  ];
+  var rows = steps.map(function(s){
+    return '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px">'
+      + '<div style="font-size:20px;flex-shrink:0;width:38px;height:38px;display:flex;align-items:center;justify-content:center;background:var(--go-soft);border-radius:11px">'+s[0]+'</div>'
+      + '<div><p style="font-weight:700;font-size:14px;margin:0">'+esc(s[1])+'</p><p class="muted" style="font-size:13px;margin:3px 0 0">'+esc(s[2])+'</p></div></div>';
+  }).join("");
+  return '<div class="overlay" data-action="howto-overlay"><div class="modal" data-stop="1">'
+    + '<h2 style="margin-bottom:2px">How this works</h2>'
+    + '<p class="muted" style="font-size:13px;margin:0 0 18px">A quick tour — you’ll be set up in a minute.</p>'
+    + rows
+    + '<p class="muted" style="font-size:13px;margin:4px 0 16px">Questions? Drop them in the Messaging tab. See you at '+esc(VENUE_NAME)+'! 🎉</p>'
+    + '<button class="btn primary block" data-action="howto-close">Got it</button>'
+    + '</div></div>';
+}
+
 function formModal(){
   var f=state.form, e=f.entry||{};
   var v={
@@ -655,7 +681,7 @@ function formModal(){
   h += '<h2>'+(f.mode==="add"?"Add yourself":"Edit entry")+'</h2>';
   h += '<label class="field"><span class="lab">Your name(s)</span><input id="f_name" value="'+esc(v.name)+'" placeholder="Sarah & Tom Garcia"><span class="hint" id="codeHint">Your <strong>first name</strong> becomes your edit code, in case you want to make changes later.</span></label>';
   h += '<label class="field"><span class="lab">How many of you?</span><input id="f_party" type="number" min="1" max="12" value="'+v.partySize+'" style="width:110px"><span class="hint">Used to fit people into cars ('+SEATS_PER_CAR+' seats each).</span></label>';
-  h += '<label class="field"><span class="lab">Phone / WhatsApp <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_contact" value="'+esc(v.contact)+'" placeholder="+33 6 12 34 56 78"><span class="hint">Include your country code (the + and number). Only people who\'ve joined the pool can see it — handy for coordinating rides.</span></label>';
+  h += '<label class="field"><span class="lab">Phone / WhatsApp <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_contact" value="'+esc(v.contact)+'" placeholder="+1 555 123 4567"><span class="hint">Include your country code (the + and number). Only people who\'ve joined the pool can see it — handy for coordinating rides.</span></label>';
 
   h += '<div class="box"><p class="boxlab">Flying in ✈</p><div class="two">'
      + '<label class="field" style="margin:0"><span class="lab">Arrival airport</span>'+airportSel("f_aA", v.arrivalAirport)+'</label>'
@@ -698,8 +724,12 @@ function render(){
   var unread = boardHasUnread();
   var tabs=[["pool","Pool"],["carpools","Carpools"],["board","Messaging"],["cars","Cars"],["admin","Admin"]];
   var html =
-    '<header class="top"><div class="wrap"><h1 class="title">'+esc(HEADER_TITLE)+'</h1>'
-    + '<p class="sub">'+esc(HEADER_SUB)+'</p><nav class="tabs">'
+    '<header class="top"><div class="wrap">'
+    + '<div class="row" style="align-items:flex-start;gap:10px">'
+    +   '<div style="min-width:0"><h1 class="title">'+esc(HEADER_TITLE)+'</h1><p class="sub">'+esc(HEADER_SUB)+'</p></div>'
+    +   '<button class="btn ghost sm" data-action="howto-open" style="flex-shrink:0;white-space:nowrap">ⓘ How it works</button>'
+    + '</div>'
+    + '<nav class="tabs">'
     + tabs.map(function(t){
         var dot = (t[0]==="board" && unread && state.tab!=="board") ? '<span class="dot"></span>' : '';
         return '<button data-action="tab" data-tab="'+t[0]+'" class="'+(state.tab===t[0]?"active":"")+'">'+t[1]+dot+'</button>';
@@ -711,6 +741,7 @@ function render(){
   }
   html += '<main><div class="wrap">'+body+'</div></main>';
   if(state.form) html += formModal();
+  if(state.howto) html += howtoModal();
 
   app.innerHTML = html;
 }
@@ -758,6 +789,9 @@ document.addEventListener("click", function(ev){
     if(msg && confirm("Delete this message?")) deleteMessage(msg);
   }
   else if(a==="copy"){ copyText(t.getAttribute("data-contact")); }
+  else if(a==="howto-open"){ state.howto=true; render(); }
+  else if(a==="howto-close"){ state.howto=false; render(); }
+  else if(a==="howto-overlay"){ if(ev.target.closest("[data-stop]")) return; state.howto=false; render(); }
   else if(a==="add"){ state.form={mode:"add"}; formWill=null; formHasCar=null; render(); }
   else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; formHasCar=null; render(); }
   else if(a==="delete"){ var e=find(id); if(e) deleteEntry(e); }
@@ -830,6 +864,7 @@ function submitForm(){
 /* =================================================================
    Start
    ================================================================= */
+if(!seenHowto()){ state.howto=true; markHowtoSeen(); }
 render();
 if(CONFIGURED){
   db.collection("entries").orderBy("createdAt","asc").onSnapshot(function(snap){
