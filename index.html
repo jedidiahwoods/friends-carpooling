@@ -238,6 +238,7 @@ var state = {
 function genCode(){ var c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", s=""; for(var i=0;i<6;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
 function genId(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 function norm(s){ return (s||"").trim().toLowerCase(); }
+function firstName(name){ return ((name||"").trim().split(/\s+/)[0]||""); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function airportLabel(e, which){
   var a = which==="arr" ? e.arrivalAirport : e.departureAirport;
@@ -271,7 +272,7 @@ function update(id, patch){ if(!CONFIGURED) return Promise.resolve(); return db.
 
 function addEntry(f){
   if(!CONFIGURED){ toast("Not connected to the database."); return; }
-  var code = genCode();
+  var code = firstName(f.name) || genCode();
   db.collection("entries").add({
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
@@ -281,7 +282,7 @@ function addEntry(f){
   }).then(function(ref){
     state.owned = state.owned.concat([{id:ref.id, code:code}]); saveOwned(state.owned);
     state.form=null; render();
-    toast("You're in! Your edit code is "+code+" — save it to edit from another device.");
+    toast("You're in! To edit later, just use your first name: "+code);
   }).catch(function(e){ console.error(e); toast("Save failed."); });
 }
 
@@ -290,7 +291,7 @@ function saveEdit(id, f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness
+    rentalWillingness:f.rentalWillingness, editCode:firstName(f.name)
   }).then(function(){ state.form=null; render(); toast("Saved."); });
 }
 
@@ -389,11 +390,11 @@ function poolTab(){
   // claim
   h += '<div class="card">';
   if(!state.claimOpen){
-    h += '<button class="link" data-action="claim-open">Editing from a new device? Enter your code →</button>';
+    h += '<button class="link" data-action="claim-open">Editing from a new device? Enter your first name →</button>';
   } else {
     h += '<p style="font-weight:600;margin:0 0 4px">Unlock your entry on this device</p>'
-       + '<p class="muted" style="font-size:12px;margin:0 0 8px">Enter the 6-character code you got when you first added yourself.</p>'
-       + '<div style="display:flex;gap:8px"><input id="claimCode" class="code" maxlength="6" placeholder="ABC123" style="flex:1">'
+       + '<p class="muted" style="font-size:12px;margin:0 0 8px">Enter the first name you signed up with.</p>'
+       + '<div style="display:flex;gap:8px"><input id="claimCode" placeholder="Your first name" style="flex:1">'
        + '<button class="btn ghost" data-action="claim-submit">Find</button></div>';
   }
   h += '</div></div>';
@@ -539,7 +540,7 @@ function formModal(){
   function airportSel(id, val){ return '<select id="'+id+'">'+AIRPORTS.map(function(a){ return '<option'+(a===val?" selected":"")+'>'+a+'</option>'; }).join("")+'</select>'; }
   var h='<div class="overlay" data-action="overlay"><div class="modal" data-stop="1">';
   h += '<h2>'+(f.mode==="add"?"Add yourself":"Edit entry")+'</h2>';
-  h += '<label class="field"><span class="lab">Your name(s)</span><input id="f_name" value="'+esc(v.name)+'" placeholder="Sarah & Tom Garcia"><span class="hint">Add everyone in your party.</span></label>';
+  h += '<label class="field"><span class="lab">Your name(s)</span><input id="f_name" value="'+esc(v.name)+'" placeholder="Sarah & Tom Garcia"><span class="hint" id="codeHint">Your <strong>first name</strong> becomes your edit code, in case you want to make changes later.</span></label>';
   h += '<label class="field"><span class="lab">How many of you?</span><input id="f_party" type="number" min="1" max="12" value="'+v.partySize+'" style="width:110px"><span class="hint">Used to fit people into cars ('+SEATS_PER_CAR+' seats each).</span></label>';
 
   h += '<div class="box"><p class="boxlab">Flying in ✈</p><div class="two">'
@@ -632,6 +633,15 @@ document.addEventListener("change", function(ev){
   if(ev.target.id==="f_aA"){ var o=document.getElementById("f_aO"); if(o) o.style.display = ev.target.value==="Other"?"block":"none"; }
   if(ev.target.id==="f_dA"){ var o2=document.getElementById("f_dO"); if(o2) o2.style.display = ev.target.value==="Other"?"block":"none"; }
   if(ev.target.getAttribute && ev.target.getAttribute("data-action")==="set-active"){ state.activeId=ev.target.value; render(); }
+});
+
+document.addEventListener("input", function(ev){
+  if(ev.target.id==="f_name"){
+    var fn=firstName(ev.target.value), h=document.getElementById("codeHint");
+    if(h) h.innerHTML = fn
+      ? 'Your edit code will be: <strong>'+esc(fn)+'</strong> — just your first name. Remember it if you might edit later.'
+      : 'Your <strong>first name</strong> becomes your edit code, in case you want to make changes later.';
+  }
 });
 
 function activeMe(){
