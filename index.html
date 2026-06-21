@@ -499,6 +499,8 @@ function carpoolsTab(){
   Object.keys(groups).forEach(function(gid){ if(keyFn(groups[gid][0])===myKey) compatGroups.push([gid, groups[gid]]); });
   var ungrouped=state.entries.filter(function(e){ return keyFn(e)===myKey && !e[idKey] && e.id!==me.id; });
   var myGroupId=me[idKey];
+  var compatIds={}; compatGroups.forEach(function(p){ compatIds[p[0]]=1; });
+  var otherKeys=Object.keys(groups).filter(function(gid){ return !compatIds[gid]; });
 
   if(compatGroups.length){
     h += '<div><p class="box boxlab" style="background:none;border:0;padding:0;margin-bottom:8px">Groups you can join</p>';
@@ -536,21 +538,31 @@ function carpoolsTab(){
     h += '</div>';
   }
 
-  if(!myGroupId && !ungrouped.length && !compatGroups.length){
-    h += '<div class="card dash"><p class="muted" style="font-size:14px;margin:0">No one else matches your '
-       + (dir==="arr"?"arrival":"departure")+' airport + date yet. Check back as more people sign up.</p></div>';
+  if(!myGroupId && !ungrouped.length && !compatGroups.length && !otherKeys.length){
+    h += '<div class="card dash"><p class="muted" style="font-size:14px;margin:0">No '
+       + (dir==="arr"?"ride-in":"ride-out")+' groups yet. Check back as more people sign up, or start one.</p></div>';
   }
 
-  // all groups read-only
-  var allKeys=Object.keys(groups);
-  if(allKeys.length){
-    h += '<details class="allg card"><summary>See all '+(dir==="arr"?"ride-in":"ride-out")+' groups</summary>';
-    allKeys.forEach(function(gid){
-      var m=groups[gid];
-      h += '<div class="gline"><p class="gp">'+esc(airportLabel(m[0], dir==="arr"?"arr":"dep"))+' · '+esc(fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate))+'</p>'
-         + '<p class="gn">'+esc(m.map(function(x){return x.name;}).join(", "))+'</p></div>';
+  // other groups — joinable even if they don't exactly match your airport/date
+  if(otherKeys.length){
+    h += '<div><p class="box boxlab" style="background:none;border:0;padding:0;margin-bottom:8px">Other '+(dir==="arr"?"ride-in":"ride-out")+' groups — you can still join any of these</p>';
+    otherKeys.forEach(function(gid){
+      var m=groups[gid], ap=airportLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
+      var seat=seatInfo(m), inThis=m.some(function(x){return x.id===me.id;});
+      var carM=m.filter(function(x){ return x.hasCar; });
+      h += '<div class="card" style="margin-bottom:8px"><div class="row"><div style="min-width:0"><strong style="font-size:14px">'+esc(m.map(function(x){return x.name;}).join(", "))+'</strong>'
+         + '<p class="muted" style="font-size:12px;margin:2px 0 0">'+esc(ap+' · '+dt)+'</p></div>'
+         + '<span class="chip '+seat.tone+'">'+seat.text+'</span></div>';
+      if(carM.length){
+        var openT=carM.reduce(function(s,x){ return s+(x.openSeats||0); },0);
+        h += '<div class="hintbox plain">🚗 '+openT+' open seat'+(openT===1?"":"s")+' offered in this group.</div>';
+      }
+      h += '<div style="margin-top:10px">'
+        + (inThis ? '<button class="btn danger sm" data-action="leave">Leave this group</button>'
+                  : '<button class="btn ghost sm" data-action="join" data-gid="'+gid+'">Join this group</button>')
+        + '</div></div>';
     });
-    h += '</details>';
+    h += '</div>';
   }
 
   h += '</div>';
