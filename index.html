@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Château de Fretoy Carpool</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌍</text></svg>">
 
 <!-- Safety net: surfaces any load/run error on-screen instead of a blank page. -->
 <script>
@@ -188,8 +189,8 @@ var firebaseConfig = {
   appId: "1:861847892523:web:d2f8d175c713eeb887b06e"
 };
 var ADMIN_PASSWORD = "jim";
-var HEADER_TITLE = "Château de Fretoy Carpool";
-var HEADER_SUB   = "Getting everyone from Paris to Morlet · June 30 – July 3";
+var HEADER_TITLE = "Jed's Carpooling Tool";
+var HEADER_SUB   = "From Paris to Château de Fretoy for Elyse and Jedidiah's wedding!";
 var VENUE_NAME   = "Château de Fretoy";
 var VENUE_SHORT  = "Fretoy";
 var DEFAULT_ARRIVAL_DATE = "2026-06-30";
@@ -277,7 +278,7 @@ function addEntry(f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, arrivalGroupId:null, departureGroupId:null,
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, arrivalGroupId:null, departureGroupId:null,
     editCode:code, createdAt:firebase.firestore.FieldValue.serverTimestamp()
   }).then(function(ref){
     state.owned = state.owned.concat([{id:ref.id, code:code}]); saveOwned(state.owned);
@@ -291,7 +292,7 @@ function saveEdit(id, f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, editCode:firstName(f.name)
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, editCode:firstName(f.name)
   }).then(function(){ state.form=null; render(); toast("Saved."); });
 }
 
@@ -351,10 +352,18 @@ function ribbon(e){
        + '<span class="dash">———</span><span>'+esc(airportLabel(e,"dep"))+' ✈</span></div>';
 }
 
+function carChip(e){
+  if(e.hasCar){
+    var s=e.openSeats||0;
+    return '<span class="chip go">🚗 Car booked'+(s>0?(" · "+s+" open seat"+(s===1?"":"s")):" · full")+'</span>';
+  }
+  var tone=e.rentalWillingness==="yes"?"go":e.rentalWillingness==="maybe"?"sun":"";
+  var txt=e.rentalWillingness==="yes"?"Can hold rental":e.rentalWillingness==="maybe"?"Maybe holds rental":"Riding along";
+  return '<span class="chip '+tone+'">'+txt+'</span>';
+}
+
 function entryCard(e){
   var manage = isOwned(e) || state.admin;
-  var wTone = e.rentalWillingness==="yes"?"go":e.rentalWillingness==="maybe"?"sun":"";
-  var wText = e.rentalWillingness==="yes"?"Can hold rental":e.rentalWillingness==="maybe"?"Maybe holds rental":"Riding along";
   return '<div class="card fade"><div class="row" style="align-items:flex-start">'
     + '<div style="min-width:0">'
       + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong style="font-size:16px">'+esc(e.name)+'</strong>'
@@ -363,7 +372,7 @@ function entryCard(e){
       + '<div class="chips">'
         + '<span class="chip">In · '+esc(fmtDate(e.arrivalDate))+'</span>'
         + '<span class="chip">Out · '+esc(fmtDate(e.departureDate))+'</span>'
-        + '<span class="chip '+wTone+'">'+wText+'</span>'
+        + carChip(e)
         + (e.arrivalGroupId?'<span class="chip go">In ride-in group</span>':'')
         + (e.departureGroupId?'<span class="chip go">In ride-out group</span>':'')
       + '</div>'
@@ -378,7 +387,7 @@ function entryCard(e){
 
 function poolTab(){
   var h = '<div class="stack">';
-  h += '<div class="row"><h2 class="sec">Who\'s coming <span class="muted" style="font-weight:500">('+state.entries.length+')</span></h2>'
+  h += '<div class="row"><h2 class="sec">Who\'s Carpooling? <span class="muted" style="font-weight:500">('+state.entries.length+')</span></h2>'
      + '<button class="btn primary" data-action="add">+ Add yourself</button></div>';
   if(state.entries.length===0){
     h += '<div class="card dash"><p style="font-weight:600;margin:0">No one\'s in the pool yet.</p>'
@@ -444,6 +453,11 @@ function carpoolsTab(){
       var seat=seatInfo(members), inThis=members.some(function(m){return m.id===me.id;});
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><strong style="font-size:14px">'+esc(members.map(function(m){return m.name;}).join(", "))+'</strong>'
          + '<span class="chip '+seat.tone+'">'+seat.text+'</span></div>';
+      var carM=members.filter(function(m){ return m.hasCar; });
+      if(carM.length){
+        var openT=carM.reduce(function(s,m){ return s+(m.openSeats||0); },0);
+        h += '<div class="hintbox plain">🚗 '+esc(carM.map(function(m){return m.name;}).join(", "))+' '+(carM.length>1?"have cars booked":"has a car booked")+' — '+openT+' open seat'+(openT===1?"":"s")+' for this group.</div>';
+      }
       if(dir==="arr"){
         var hint=rentalHint(members, airport);
         if(hint.kind==="found") h += '<div class="hintbox sun">💡 <strong>'+esc(hint.pick.name)+'</strong> '+(hint.many?"(and others) are":"is")+' round-trip via '+esc(airport)+' — likely cheapest to hold the rental (no drop-off fee).</div>';
@@ -461,7 +475,8 @@ function carpoolsTab(){
     h += '<div><p class="box boxlab" style="background:none;border:0;padding:0;margin-bottom:8px">Not grouped yet — start a ride together</p>';
     ungrouped.forEach(function(e){
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><div><strong style="font-size:14px">'+esc(e.name)+'</strong>'
-         + '<p class="muted" style="font-size:12px;margin:2px 0 0">'+e.partySize+(e.partySize===1?" person":" people")+'</p></div>'
+         + '<p class="muted" style="font-size:12px;margin:2px 0 0">'+e.partySize+(e.partySize===1?" person":" people")
+         + (e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seat'+((e.openSeats||0)===1?'':'s'):'')+'</p></div>'
          + '<button class="btn ghost sm" data-action="start" data-id="'+e.id+'">Start a group</button></div></div>';
     });
     h += '</div>';
@@ -515,7 +530,7 @@ function adminTab(){
     h += '<div class="card"><div class="row" style="align-items:flex-start"><div>'
       + '<strong style="font-size:16px">'+esc(e.name)+'</strong> <span class="muted">· '+e.partySize+'p</span>'
       + ribbon(e)
-      + '<p class="muted" style="font-size:12px;margin:6px 0 0">In '+esc(fmtDate(e.arrivalDate))+' · Out '+esc(fmtDate(e.departureDate))+' · code '+esc(e.editCode||"")+'</p></div>'
+      + '<p class="muted" style="font-size:12px;margin:6px 0 0">In '+esc(fmtDate(e.arrivalDate))+' · Out '+esc(fmtDate(e.departureDate))+' · code '+esc(e.editCode||"")+(e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seats':'')+'</p></div>'
       + '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
         + '<button class="btn subtle sm" data-action="edit" data-id="'+e.id+'">Edit</button>'
         + '<button class="btn danger sm" data-action="delete" data-id="'+e.id+'">Delete</button></div></div>'
@@ -535,7 +550,8 @@ function formModal(){
     name:e.name||"", partySize:e.partySize||2,
     arrivalAirport:e.arrivalAirport||"CDG", arrivalAirportOther:e.arrivalAirportOther||"", arrivalDate:e.arrivalDate||DEFAULT_ARRIVAL_DATE,
     departureAirport:e.departureAirport||"CDG", departureAirportOther:e.departureAirportOther||"", departureDate:e.departureDate||DEFAULT_DEPARTURE_DATE,
-    rentalWillingness:e.rentalWillingness||"maybe"
+    rentalWillingness:e.rentalWillingness||"maybe",
+    hasCar:!!e.hasCar, openSeats:(e.openSeats!=null?e.openSeats:1)
   };
   function airportSel(id, val){ return '<select id="'+id+'">'+AIRPORTS.map(function(a){ return '<option'+(a===val?" selected":"")+'>'+a+'</option>'; }).join("")+'</select>'; }
   var h='<div class="overlay" data-action="overlay"><div class="modal" data-stop="1">';
@@ -553,9 +569,18 @@ function formModal(){
      + '<label class="field" style="margin:0"><span class="lab">Departure date</span><input id="f_dD" type="date" value="'+esc(v.departureDate)+'"></label></div>'
      + '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'"></div>';
 
-  h += '<label class="field"><span class="lab">Could you be the rental car holder?</span><div class="seg" id="f_will">'
+  h += '<label class="field"><span class="lab">Have you already booked a rental car?</span><div class="seg" id="f_hasCar">'
+     + '<button type="button" data-hascar="yes" class="'+(v.hasCar?"on":"")+'">Yes, I\'ve booked one</button>'
+     + '<button type="button" data-hascar="no" class="'+(v.hasCar?"":"on")+'">Not yet</button>'
+     + '</div></label>';
+  h += '<div id="carYes" style="display:'+(v.hasCar?"block":"none")+'">'
+     + '<label class="field"><span class="lab">Open seats you can offer</span>'
+     + '<input id="f_seats" type="number" min="0" max="10" value="'+v.openSeats+'" style="width:110px">'
+     + '<span class="hint">How many riders you can take besides your own party.</span></label></div>';
+  h += '<div id="carNo" style="display:'+(v.hasCar?"none":"block")+'">'
+     + '<label class="field"><span class="lab">Could you be the rental car holder?</span><div class="seg" id="f_will">'
      + WILLING.map(function(w){ return '<button type="button" data-will="'+w.key+'" class="'+(w.key===v.rentalWillingness?"on":"")+'">'+w.label+'</button>'; }).join("")
-     + '</div><span class="hint">Round-trippers at one airport are usually cheapest to hold the car.</span></label>';
+     + '</div><span class="hint">Round-trippers at one airport are usually cheapest to hold the car.</span></label></div>';
 
   h += '<div style="display:flex;gap:8px"><button class="btn primary" data-action="form-save" style="flex:1">Save</button>'
      + '<button class="btn ghost" data-action="form-cancel">Cancel</button></div>';
@@ -589,6 +614,7 @@ function render(){
 
 /* current form field temp value for willingness (segmented control) */
 var formWill = null;
+var formHasCar = null;
 
 /* =================================================================
    Events (delegation)
@@ -603,14 +629,24 @@ document.addEventListener("click", function(ev){
     if(seg){ Array.prototype.forEach.call(seg.children, function(b){ b.className = (b.getAttribute("data-will")===formWill?"on":""); }); }
     return;
   }
+  var hc = ev.target.closest("[data-hascar]");
+  if(hc){
+    formHasCar = hc.getAttribute("data-hascar");
+    var segc=document.getElementById("f_hasCar");
+    if(segc){ Array.prototype.forEach.call(segc.children, function(b){ b.className = (b.getAttribute("data-hascar")===formHasCar?"on":""); }); }
+    var yes=document.getElementById("carYes"), no=document.getElementById("carNo");
+    if(yes) yes.style.display = formHasCar==="yes"?"block":"none";
+    if(no)  no.style.display  = formHasCar==="yes"?"none":"block";
+    return;
+  }
   if(!t) return;
   var a=t.getAttribute("data-action"), id=t.getAttribute("data-id");
   var find=function(id){ for(var i=0;i<state.entries.length;i++) if(state.entries[i].id===id) return state.entries[i]; return null; };
 
   if(a==="tab"){ state.tab=t.getAttribute("data-tab"); render(); }
   else if(a==="dir"){ state.dir=t.getAttribute("data-dir"); render(); }
-  else if(a==="add"){ state.form={mode:"add"}; formWill=null; render(); }
-  else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; render(); }
+  else if(a==="add"){ state.form={mode:"add"}; formWill=null; formHasCar=null; render(); }
+  else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; formHasCar=null; render(); }
   else if(a==="delete"){ var e=find(id); if(e) deleteEntry(e); }
   else if(a==="claim-open"){ state.claimOpen=true; render(); }
   else if(a==="claim-submit"){ var c=document.getElementById("claimCode"); claimByCode(c?c.value:""); }
@@ -653,12 +689,15 @@ function activeMe(){
 function val(id){ var el=document.getElementById(id); return el?el.value:""; }
 function submitForm(){
   var f=state.form;
+  var hasCar = (formHasCar!=null) ? (formHasCar==="yes") : !!(f.entry&&f.entry.hasCar);
   var data={
     name:val("f_name").trim(),
     partySize:Math.max(1, parseInt(val("f_party")||"1",10)),
     arrivalAirport:val("f_aA"), arrivalAirportOther:val("f_aO").trim(), arrivalDate:val("f_aD"),
     departureAirport:val("f_dA"), departureAirportOther:val("f_dO").trim(), departureDate:val("f_dD"),
-    rentalWillingness: formWill || (f.entry&&f.entry.rentalWillingness) || "maybe"
+    hasCar:hasCar,
+    openSeats: hasCar ? Math.max(0, parseInt(val("f_seats")||"0",10)) : 0,
+    rentalWillingness: hasCar ? "yes" : (formWill || (f.entry&&f.entry.rentalWillingness) || "maybe")
   };
   if(!data.name){ toast("Please add your name(s)."); return; }
   if(data.arrivalAirport==="Other" && !data.arrivalAirportOther){ toast("Enter your arrival airport."); return; }
