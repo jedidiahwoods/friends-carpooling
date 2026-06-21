@@ -60,7 +60,7 @@
   header.top .wrap { padding-top:12px; padding-bottom:12px; }
   h1.title { font-size:21px; font-weight:700; letter-spacing:-.01em; margin:0; }
   .sub { font-size:12px; color:var(--muted); margin:2px 0 0; }
-  nav.tabs { display:flex; gap:4px; margin-top:12px; }
+  nav.tabs { display:flex; gap:4px; margin-top:12px; flex-wrap:wrap; }
   nav.tabs button {
     border:0; background:none; cursor:pointer; font-family:inherit;
     font-size:14px; font-weight:600; color:var(--muted);
@@ -164,6 +164,13 @@
     padding:12px 16px; border-radius:12px; max-width:92vw; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.18);
   }
   .stack > * + * { margin-top:16px; }
+  .msg { background:#fff; border:1px solid var(--line); border-radius:14px; padding:10px 12px; }
+  .msg-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .msg-b { font-size:14px; margin-top:4px; white-space:pre-wrap; word-break:break-word; }
+  .composer { display:flex; gap:8px; margin-top:12px; }
+  .scopepills { display:flex; flex-wrap:wrap; gap:6px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:999px; background:var(--go); margin-left:5px; vertical-align:middle; }
+  nav.tabs button.active .dot { background:#fff; }
   .link { color:var(--go-dark); font-weight:600; cursor:pointer; background:none; border:0; font-family:inherit; font-size:14px; padding:0; }
   .link:hover { text-decoration:underline; }
   .carlink {
@@ -196,14 +203,14 @@ var VENUE_SHORT  = "Fretoy";
 var DEFAULT_ARRIVAL_DATE = "2026-06-30";
 var DEFAULT_DEPARTURE_DATE = "2026-07-03";
 var SEATS_PER_CAR = 5;
-var AIRPORTS = ["CDG", "Geneva", "Other"];
+var AIRPORTS = ["Paris", "Geneva", "Other"];
 var WILLING = [
   { key:"yes",   label:"Yes, I can hold the rental" },
   { key:"maybe", label:"Maybe / open to it" },
   { key:"no",    label:"No, I'd ride along" }
 ];
 var RENTAL_SPOTS = [
-  { place:"Charles de Gaulle (CDG)", note:"Main airport for Paris arrivals", links:[
+  { place:"Paris – Charles de Gaulle (CDG)", note:"Main airport for Paris arrivals", links:[
     {name:"Budget", url:"https://www.budget.com"}, {name:"Enterprise", url:"https://www.enterprise.com"}, {name:"Sixt", url:"https://www.sixt.com"} ] },
   { place:"Le Creusot TGV station", note:"Closest train station to Morlet", links:[
     {name:"Budget", url:"https://www.budget.com"}, {name:"Enterprise", url:"https://www.enterprise.com"}, {name:"Sixt", url:"https://www.sixt.com"} ] },
@@ -231,10 +238,15 @@ function loadOwned(){ try { return JSON.parse(localStorage.getItem(LS_KEY) || "[
 function saveOwned(l){ try { localStorage.setItem(LS_KEY, JSON.stringify(l)); } catch(e){} }
 
 var state = {
-  entries: [], loaded: !CONFIGURED, tab: "pool",
-  owned: loadOwned(), admin: false, dir: "arr",
+  entries: [], messages: [], loaded: !CONFIGURED, tab: "pool",
+  owned: loadOwned(), admin: false, dir: "arr", boardScope: "general",
   activeId: null, form: null, claimOpen: false
 };
+var SEEN_KEY = "flcp_board_seen_v1";
+function loadSeen(){ try { return parseInt(localStorage.getItem(SEEN_KEY)||"0",10)||0; } catch(e){ return 0; } }
+function markSeen(){ try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch(e){} }
+function msgMs(m){ return (m.createdAt && m.createdAt.toMillis) ? m.createdAt.toMillis() : Date.now(); }
+function boardHasUnread(){ var seen=loadSeen(); return state.messages.some(function(m){ return msgMs(m) > seen; }); }
 
 function genCode(){ var c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", s=""; for(var i=0;i<6;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
 function genId(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
@@ -278,7 +290,7 @@ function addEntry(f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, arrivalGroupId:null, departureGroupId:null,
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", arrivalGroupId:null, departureGroupId:null,
     editCode:code, createdAt:firebase.firestore.FieldValue.serverTimestamp()
   }).then(function(ref){
     state.owned = state.owned.concat([{id:ref.id, code:code}]); saveOwned(state.owned);
@@ -292,7 +304,7 @@ function saveEdit(id, f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, editCode:firstName(f.name)
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", editCode:firstName(f.name)
   }).then(function(){ state.form=null; render(); toast("Saved."); });
 }
 
@@ -311,6 +323,19 @@ function claimByCode(code){
     if(!ownedIds()[hit.id]){ state.owned=state.owned.concat([{id:hit.id, code:hit.editCode}]); saveOwned(state.owned); }
     state.claimOpen=false; render(); toast("Found \""+hit.name+"\" — you can edit it here now.");
   } else toast("No match for that code.");
+}
+
+/* messages */
+function postMessage(text, scope, author, authorId){
+  if(!CONFIGURED){ toast("Not connected to the database."); return; }
+  if(!text.trim()) return;
+  db.collection("messages").add({
+    text:text.trim(), scope:scope, author:author, authorId:authorId||null,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(){ markSeen(); }).catch(function(e){ console.error(e); toast("Couldn't post message."); });
+}
+function deleteMessage(m){
+  db.collection("messages").doc(m.id).delete().catch(function(e){ console.error(e); toast("Couldn't delete."); });
 }
 
 /* grouping */
@@ -352,6 +377,27 @@ function ribbon(e){
        + '<span class="dash">———</span><span>'+esc(airportLabel(e,"dep"))+' ✈</span></div>';
 }
 
+function digitsOnly(s){ return (s||"").replace(/[^0-9]/g,""); }
+function canSeeContacts(){ return state.admin || myEntries().length>0; }
+function contactRow(e){
+  if(!e.contact || !canSeeContacts()) return '';
+  var wa=digitsOnly(e.contact);
+  return '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:12px">'
+    + '<span class="muted" style="font-size:13px">📞 '+esc(e.contact)+'</span>'
+    + (wa ? '<a class="btn ghost sm" href="https://wa.me/'+wa+'" target="_blank" rel="noopener noreferrer">WhatsApp ↗</a>' : '')
+    + '<button class="btn subtle sm" data-action="copy" data-contact="'+esc(e.contact)+'">Copy number</button></div>';
+}
+function copyText(txt){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast("Copied: "+txt); }, function(){ fallbackCopy(txt); });
+  } else fallbackCopy(txt);
+}
+function fallbackCopy(txt){
+  try{ var ta=document.createElement("textarea"); ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); toast("Copied: "+txt); }
+  catch(e){ toast("Couldn't copy automatically — long-press the number to copy."); }
+}
+
 function carChip(e){
   if(e.hasCar){
     var s=e.openSeats||0;
@@ -381,6 +427,7 @@ function entryCard(e){
         + '<button class="btn subtle sm" data-action="edit" data-id="'+e.id+'">Edit</button>'
         + '<button class="btn danger sm" data-action="delete" data-id="'+e.id+'">Delete</button></div>' : '')
     + '</div>'
+    + contactRow(e)
     + (isOwned(e)&&!state.admin ? '<p class="muted" style="font-size:12px;margin:12px 0 0">This is you — only you can edit it on this device.</p>' : '')
     + '</div>';
 }
@@ -503,9 +550,58 @@ function carpoolsTab(){
   return h;
 }
 
+function fmtTime(ts){
+  if(!ts || !ts.toDate) return "just now";
+  return ts.toDate().toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function boardTab(){
+  var me = myEntries()[0] || null;
+  var scopes = [{id:"general", label:"General"}];
+  if(me && me.arrivalGroupId) scopes.push({id:me.arrivalGroupId, label:"Ride-in group"});
+  if(me && me.departureGroupId) scopes.push({id:me.departureGroupId, label:"Ride-out group"});
+  var valid = scopes.some(function(s){ return s.id===state.boardScope; });
+  if(!valid) state.boardScope="general";
+  var scopeId = state.boardScope;
+  var current = scopes.filter(function(s){ return s.id===scopeId; })[0];
+
+  var msgs = state.messages.filter(function(m){ return m.scope===scopeId; });
+
+  var h='<div class="stack"><h2 class="sec">Message Board</h2>';
+  if(scopes.length>1){
+    h += '<div class="scopepills">'
+      + scopes.map(function(s){ return '<button class="btn '+(s.id===scopeId?"primary":"ghost")+' sm" data-action="board-scope" data-scope="'+s.id+'">'+esc(s.label)+'</button>'; }).join("")
+      + '</div>';
+  }
+  h += '<p class="muted" style="font-size:13px;margin:0">'
+     + (scopeId==="general" ? "Open board for everyone carpooling — say hi, ask questions, coordinate."
+        : "Private board for your "+esc(current?current.label.toLowerCase():"group")+". Only people in this group see it.")+'</p>';
+
+  if(msgs.length===0){
+    h += '<div class="card dash"><p class="muted" style="font-size:14px;margin:0">No messages yet'+(scopeId==="general"?" — say hi! 👋":" — start the conversation.")+'</p></div>';
+  } else {
+    h += '<div class="grid">' + msgs.map(function(m){
+      var mine = state.admin || !!ownedIds()[m.authorId];
+      return '<div class="msg fade"><div class="msg-h"><strong style="font-size:14px">'+esc(m.author||"Someone")+'</strong>'
+        + '<span class="muted" style="font-size:11px">'+esc(fmtTime(m.createdAt))+'</span></div>'
+        + '<div class="msg-b">'+esc(m.text)+'</div>'
+        + (mine ? '<button class="link" style="color:#dc2626;font-size:11px;margin-top:6px" data-action="del-msg" data-id="'+m.id+'">Delete</button>' : '')
+        + '</div>';
+    }).join("") + '</div>';
+  }
+
+  if(me){
+    h += '<div class="composer"><input id="msgInput" placeholder="Write a message…" style="flex:1"><button class="btn primary" data-action="post-msg">Post</button></div>'
+       + '<p class="muted" style="font-size:11px;margin:6px 0 0">Posting as '+esc(me.name)+'.</p>';
+  } else {
+    h += '<div class="card dash"><p class="muted" style="font-size:14px;margin:0">Add yourself in the Pool tab to post a message.</p></div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 function carsTab(){
   var h='<div class="stack"><h2 class="sec">Need a car?</h2>';
-  h += '<div class="hintbox sun" style="margin-top:0">💡 <strong>Who should hold the rental?</strong> Whoever flies <em>in and out of the same airport</em> (a round trip) is almost always the cheapest renter — one pickup and drop-off location avoids one-way fees. If your group mixes airports (in to CDG, out of Geneva), let the round-trip person take the car.</div>';
+  h += '<div class="hintbox sun" style="margin-top:0">💡 <strong>Who should hold the rental?</strong> Whoever flies <em>in and out of the same airport</em> (a round trip) is almost always the cheapest renter — one pickup and drop-off location avoids one-way fees. If your group mixes airports (in to Paris, out of Geneva), let the round-trip person take the car.</div>';
   h += '<div class="grid">';
   RENTAL_SPOTS.forEach(function(s){
     h += '<div class="card"><strong style="font-size:16px">'+esc(s.place)+'</strong>'
@@ -548,16 +644,18 @@ function formModal(){
   var f=state.form, e=f.entry||{};
   var v={
     name:e.name||"", partySize:e.partySize||2,
-    arrivalAirport:e.arrivalAirport||"CDG", arrivalAirportOther:e.arrivalAirportOther||"", arrivalDate:e.arrivalDate||DEFAULT_ARRIVAL_DATE,
-    departureAirport:e.departureAirport||"CDG", departureAirportOther:e.departureAirportOther||"", departureDate:e.departureDate||DEFAULT_DEPARTURE_DATE,
+    arrivalAirport:e.arrivalAirport||"Paris", arrivalAirportOther:e.arrivalAirportOther||"", arrivalDate:e.arrivalDate||DEFAULT_ARRIVAL_DATE,
+    departureAirport:e.departureAirport||"Paris", departureAirportOther:e.departureAirportOther||"", departureDate:e.departureDate||DEFAULT_DEPARTURE_DATE,
     rentalWillingness:e.rentalWillingness||"maybe",
-    hasCar:!!e.hasCar, openSeats:(e.openSeats!=null?e.openSeats:1)
+    hasCar:!!e.hasCar, openSeats:(e.openSeats!=null?e.openSeats:1),
+    contact:e.contact||""
   };
   function airportSel(id, val){ return '<select id="'+id+'">'+AIRPORTS.map(function(a){ return '<option'+(a===val?" selected":"")+'>'+a+'</option>'; }).join("")+'</select>'; }
   var h='<div class="overlay" data-action="overlay"><div class="modal" data-stop="1">';
   h += '<h2>'+(f.mode==="add"?"Add yourself":"Edit entry")+'</h2>';
   h += '<label class="field"><span class="lab">Your name(s)</span><input id="f_name" value="'+esc(v.name)+'" placeholder="Sarah & Tom Garcia"><span class="hint" id="codeHint">Your <strong>first name</strong> becomes your edit code, in case you want to make changes later.</span></label>';
   h += '<label class="field"><span class="lab">How many of you?</span><input id="f_party" type="number" min="1" max="12" value="'+v.partySize+'" style="width:110px"><span class="hint">Used to fit people into cars ('+SEATS_PER_CAR+' seats each).</span></label>';
+  h += '<label class="field"><span class="lab">Phone / WhatsApp <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_contact" value="'+esc(v.contact)+'" placeholder="+33 6 12 34 56 78"><span class="hint">Include your country code (the + and number). Only people who\'ve joined the pool can see it — handy for coordinating rides.</span></label>';
 
   h += '<div class="box"><p class="boxlab">Flying in ✈</p><div class="two">'
      + '<label class="field" style="margin:0"><span class="lab">Arrival airport</span>'+airportSel("f_aA", v.arrivalAirport)+'</label>'
@@ -593,14 +691,19 @@ function render(){
   var body = !state.loaded ? '<p class="muted" style="text-align:center;padding:64px 0">Loading…</p>'
     : state.tab==="pool" ? poolTab()
     : state.tab==="carpools" ? carpoolsTab()
+    : state.tab==="board" ? boardTab()
     : state.tab==="cars" ? carsTab()
     : adminTab();
 
-  var tabs=[["pool","Pool"],["carpools","Carpools"],["cars","Cars"],["admin","Admin"]];
+  var unread = boardHasUnread();
+  var tabs=[["pool","Pool"],["carpools","Carpools"],["board","Board"],["cars","Cars"],["admin","Admin"]];
   var html =
     '<header class="top"><div class="wrap"><h1 class="title">'+esc(HEADER_TITLE)+'</h1>'
     + '<p class="sub">'+esc(HEADER_SUB)+'</p><nav class="tabs">'
-    + tabs.map(function(t){ return '<button data-action="tab" data-tab="'+t[0]+'" class="'+(state.tab===t[0]?"active":"")+'">'+t[1]+'</button>'; }).join("")
+    + tabs.map(function(t){
+        var dot = (t[0]==="board" && unread && state.tab!=="board") ? '<span class="dot"></span>' : '';
+        return '<button data-action="tab" data-tab="'+t[0]+'" class="'+(state.tab===t[0]?"active":"")+'">'+t[1]+dot+'</button>';
+      }).join("")
     + '</nav></div></header>';
 
   if(!CONFIGURED){
@@ -643,8 +746,18 @@ document.addEventListener("click", function(ev){
   var a=t.getAttribute("data-action"), id=t.getAttribute("data-id");
   var find=function(id){ for(var i=0;i<state.entries.length;i++) if(state.entries[i].id===id) return state.entries[i]; return null; };
 
-  if(a==="tab"){ state.tab=t.getAttribute("data-tab"); render(); }
+  if(a==="tab"){ state.tab=t.getAttribute("data-tab"); if(state.tab==="board") markSeen(); render(); }
   else if(a==="dir"){ state.dir=t.getAttribute("data-dir"); render(); }
+  else if(a==="board-scope"){ state.boardScope=t.getAttribute("data-scope"); render(); }
+  else if(a==="post-msg"){
+    var inp=document.getElementById("msgInput"); var me0=myEntries()[0];
+    if(inp && me0 && inp.value.trim()){ postMessage(inp.value, state.boardScope, me0.name, me0.id); inp.value=""; }
+  }
+  else if(a==="del-msg"){
+    var mid=id, msg=null; for(var j=0;j<state.messages.length;j++) if(state.messages[j].id===mid) msg=state.messages[j];
+    if(msg && confirm("Delete this message?")) deleteMessage(msg);
+  }
+  else if(a==="copy"){ copyText(t.getAttribute("data-contact")); }
   else if(a==="add"){ state.form={mode:"add"}; formWill=null; formHasCar=null; render(); }
   else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; formHasCar=null; render(); }
   else if(a==="delete"){ var e=find(id); if(e) deleteEntry(e); }
@@ -680,6 +793,14 @@ document.addEventListener("input", function(ev){
   }
 });
 
+document.addEventListener("keydown", function(ev){
+  if(ev.target && ev.target.id==="msgInput" && ev.key==="Enter"){
+    ev.preventDefault();
+    var me0=myEntries()[0];
+    if(me0 && ev.target.value.trim()){ postMessage(ev.target.value, state.boardScope, me0.name, me0.id); ev.target.value=""; }
+  }
+});
+
 function activeMe(){
   var mine=myEntries();
   for(var i=0;i<mine.length;i++) if(mine[i].id===state.activeId) return mine[i];
@@ -695,6 +816,7 @@ function submitForm(){
     partySize:Math.max(1, parseInt(val("f_party")||"1",10)),
     arrivalAirport:val("f_aA"), arrivalAirportOther:val("f_aO").trim(), arrivalDate:val("f_aD"),
     departureAirport:val("f_dA"), departureAirportOther:val("f_dO").trim(), departureDate:val("f_dD"),
+    contact:val("f_contact").trim(),
     hasCar:hasCar,
     openSeats: hasCar ? Math.max(0, parseInt(val("f_seats")||"0",10)) : 0,
     rentalWillingness: hasCar ? "yes" : (formWill || (f.entry&&f.entry.rentalWillingness) || "maybe")
@@ -714,6 +836,13 @@ if(CONFIGURED){
     var arr=[]; snap.forEach(function(d){ var o=d.data(); o.id=d.id; arr.push(o); });
     state.entries=arr; state.loaded=true; render();
   }, function(err){ console.error(err); state.loaded=true; render(); toast("Couldn't reach the database."); });
+
+  db.collection("messages").orderBy("createdAt","asc").onSnapshot(function(snap){
+    var arr=[]; snap.forEach(function(d){ var o=d.data(); o.id=d.id; arr.push(o); });
+    state.messages=arr;
+    if(state.tab==="board") markSeen();
+    render();
+  }, function(err){ console.error("messages:", err); });
 }
 </script>
 </body>
