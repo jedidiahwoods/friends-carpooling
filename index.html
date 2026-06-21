@@ -616,6 +616,33 @@ function carsTab(){
   return h;
 }
 
+function rentalRole(e){ return e.hasCar ? "owner" : (e.rentalWillingness==="yes"?"hold":e.rentalWillingness==="maybe"?"maybe":"ride"); }
+function adminSetRental(id, role){
+  var map={ owner:{hasCar:true,rentalWillingness:"yes"}, hold:{hasCar:false,rentalWillingness:"yes"}, maybe:{hasCar:false,rentalWillingness:"maybe"}, ride:{hasCar:false,rentalWillingness:"no"} };
+  update(id, map[role]||map.ride).then(function(){ toast("Rental role updated."); });
+}
+function adminSetGroup(id, dir, value){
+  var k=dir==="arr"?"arrivalGroupId":"departureGroupId";
+  var gid = value==="" ? null : (value==="__new__" ? genId() : value);
+  var p={}; p[k]=gid; update(id, p).then(function(){ toast(gid?"Group updated.":"Removed from group."); });
+}
+function ctrlLabel(t){ return '<span style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px">'+t+'</span>'; }
+function adminGroupSelect(e, dir){
+  var k=dir==="arr"?"arrivalGroupId":"departureGroupId", cur=e[k]||"", groups=groupsByDir(dir);
+  var opts='<option value=""'+(cur===""?" selected":"")+'>— Not in a '+(dir==="arr"?"ride-in":"ride-out")+' group —</option>';
+  Object.keys(groups).forEach(function(gid){
+    var m=groups[gid], names=m.map(function(x){return x.name;}).join(", ");
+    var ap=airportLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
+    opts+='<option value="'+gid+'"'+(cur===gid?" selected":"")+'>'+esc(names+" ("+ap+" · "+dt+")")+'</option>';
+  });
+  opts+='<option value="__new__">➕ New group (just '+esc(firstName(e.name)||e.name)+')</option>';
+  return '<select data-action="admin-group" data-id="'+e.id+'" data-dir="'+dir+'">'+opts+'</select>';
+}
+function adminRentalSelect(e){
+  var role=rentalRole(e), opts=[["owner","🚗 Rental owner (has car)"],["hold","Can hold rental"],["maybe","Maybe / open to it"],["ride","Ride along"]];
+  return '<select data-action="admin-rental" data-id="'+e.id+'">'+opts.map(function(o){ return '<option value="'+o[0]+'"'+(role===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("")+'</select>';
+}
+
 function adminTab(){
   if(!state.admin){
     return '<div class="card" style="max-width:380px;margin:0 auto"><h2 class="sec">Admin</h2>'
@@ -633,10 +660,11 @@ function adminTab(){
       + '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
         + '<button class="btn subtle sm" data-action="edit" data-id="'+e.id+'">Edit</button>'
         + '<button class="btn danger sm" data-action="delete" data-id="'+e.id+'">Delete</button></div></div>'
-      + ((e.arrivalGroupId||e.departureGroupId) ? '<div style="margin-top:8px;display:flex;gap:12px">'
-          + (e.arrivalGroupId?'<button class="link" style="color:#6B7280;font-size:12px" data-action="kick" data-id="'+e.id+'" data-dir="arr">Remove from ride-in group</button>':'')
-          + (e.departureGroupId?'<button class="link" style="color:#6B7280;font-size:12px" data-action="kick" data-id="'+e.id+'" data-dir="dep">Remove from ride-out group</button>':'')
-          + '</div>' : '')
+      + '<div style="margin-top:12px;display:grid;gap:10px;border-top:1px solid var(--line);padding-top:12px">'
+        + '<div>'+ctrlLabel("Ride-in group")+adminGroupSelect(e,"arr")+'</div>'
+        + '<div>'+ctrlLabel("Ride-out group")+adminGroupSelect(e,"dep")+'</div>'
+        + '<div>'+ctrlLabel("Rental role")+adminRentalSelect(e)+'</div>'
+      + '</div>'
       + '</div>';
   });
   h += '</div></div>';
@@ -816,6 +844,9 @@ document.addEventListener("change", function(ev){
   if(ev.target.id==="f_aA"){ var o=document.getElementById("f_aO"); if(o) o.style.display = ev.target.value==="Other"?"block":"none"; }
   if(ev.target.id==="f_dA"){ var o2=document.getElementById("f_dO"); if(o2) o2.style.display = ev.target.value==="Other"?"block":"none"; }
   if(ev.target.getAttribute && ev.target.getAttribute("data-action")==="set-active"){ state.activeId=ev.target.value; render(); }
+  var cact = ev.target.getAttribute && ev.target.getAttribute("data-action");
+  if(cact==="admin-group"){ adminSetGroup(ev.target.getAttribute("data-id"), ev.target.getAttribute("data-dir"), ev.target.value); }
+  if(cact==="admin-rental"){ adminSetRental(ev.target.getAttribute("data-id"), ev.target.value); }
 });
 
 document.addEventListener("input", function(ev){
