@@ -435,6 +435,16 @@ function entryCard(e){
     + '</div>';
 }
 
+function claimBlock(openLabel, submitLabel){
+  if(!state.claimOpen){
+    return '<div class="card"><button class="link" data-action="claim-open">'+esc(openLabel)+' →</button></div>';
+  }
+  return '<div class="card"><p style="font-weight:600;margin:0 0 4px">Log back in on this device</p>'
+    + '<p class="muted" style="font-size:12px;margin:0 0 8px">Enter the first name you signed up with.</p>'
+    + '<div style="display:flex;gap:8px"><input id="claimCode" placeholder="Your first name" style="flex:1">'
+    + '<button class="btn ghost" data-action="claim-submit">'+esc(submitLabel||"Log in")+'</button></div></div>';
+}
+
 function poolTab(){
   var h = '<div class="stack">';
   h += '<div class="row"><h2 class="sec">Who\'s Carpooling? <span class="muted" style="font-weight:500">('+state.entries.length+')</span></h2>'
@@ -447,16 +457,8 @@ function poolTab(){
     h += '<div class="grid">' + state.entries.map(entryCard).join("") + '</div>';
   }
   // claim
-  h += '<div class="card">';
-  if(!state.claimOpen){
-    h += '<button class="link" data-action="claim-open">Editing from a new device? Enter your first name →</button>';
-  } else {
-    h += '<p style="font-weight:600;margin:0 0 4px">Unlock your entry on this device</p>'
-       + '<p class="muted" style="font-size:12px;margin:0 0 8px">Enter the first name you signed up with.</p>'
-       + '<div style="display:flex;gap:8px"><input id="claimCode" placeholder="Your first name" style="flex:1">'
-       + '<button class="btn ghost" data-action="claim-submit">Find</button></div>';
-  }
-  h += '</div></div>';
+  h += claimBlock("Editing from a new device? Enter your first name", "Find");
+  h += '</div>';
   return h;
 }
 
@@ -476,7 +478,9 @@ function carpoolsTab(){
 
   if(!me){
     h += '<div class="card dash"><p style="font-weight:600;margin:0">Add yourself to the pool first.</p>'
-       + '<p class="muted" style="margin:6px 0 0;font-size:14px">Once you\'re in, you can join or start a carpool here.</p></div></div>';
+       + '<p class="muted" style="margin:6px 0 0;font-size:14px">Once you\'re in, you can join or start a carpool here.</p></div>';
+    h += claimBlock("Log back in to join a carpool (your first name)", "Log in");
+    h += '</div>';
     return h;
   }
 
@@ -597,6 +601,7 @@ function boardTab(){
        + '<p class="muted" style="font-size:11px;margin:6px 0 0">Posting as '+esc(me.name)+'.</p>';
   } else {
     h += '<div class="card dash"><p class="muted" style="font-size:14px;margin:0">Add yourself in the Pool tab to post a message.</p></div>';
+    h += claimBlock("Log in to send a message (your first name)", "Log in");
   }
   h += '</div>';
   return h;
