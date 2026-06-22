@@ -293,7 +293,7 @@ function addEntry(f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", arrivalGroupId:null, departureGroupId:null,
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", departureTime:f.departureTime||"", arrivalGroupId:null, departureGroupId:null,
     editCode:code, createdAt:firebase.firestore.FieldValue.serverTimestamp()
   }).then(function(ref){
     state.owned = state.owned.concat([{id:ref.id, code:code}]); saveOwned(state.owned);
@@ -307,7 +307,7 @@ function saveEdit(id, f){
     name:f.name, partySize:f.partySize,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
-    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", editCode:firstName(f.name)
+    rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", departureTime:f.departureTime||"", editCode:firstName(f.name)
   }).then(function(){ state.form=null; render(); toast("Saved."); });
 }
 
@@ -401,6 +401,19 @@ function fallbackCopy(txt){
   catch(e){ toast("Couldn't copy automatically — long-press the number to copy."); }
 }
 
+function fmtClock(t){
+  if(!t) return "";
+  var p=String(t).split(":"); if(p.length<2) return t;
+  var h=parseInt(p[0],10), m=p[1], ap=h>=12?"PM":"AM", h12=h%12; if(h12===0) h12=12;
+  return h12+":"+m+" "+ap;
+}
+function depTimeNote(members){
+  var uniq=[];
+  members.forEach(function(m){ if(m.departureTime){ var t=fmtClock(m.departureTime); if(uniq.indexOf(t)<0) uniq.push(t); } });
+  if(!uniq.length) return '';
+  return '<div class="hintbox plain">🕐 Preferred departure: '+esc(uniq.join(", "))+'</div>';
+}
+
 function carChip(e){
   if(e.hasCar){
     var s=e.openSeats||0;
@@ -420,7 +433,7 @@ function entryCard(e){
       + ribbon(e)
       + '<div class="chips">'
         + '<span class="chip">In · '+esc(fmtDate(e.arrivalDate))+'</span>'
-        + '<span class="chip">Out · '+esc(fmtDate(e.departureDate))+'</span>'
+        + '<span class="chip">Out · '+esc(fmtDate(e.departureDate))+(e.departureTime?' · '+esc(fmtClock(e.departureTime)):'')+'</span>'
         + carChip(e)
         + (e.arrivalGroupId?'<span class="chip go">In ride-in group</span>':'')
         + (e.departureGroupId?'<span class="chip go">In ride-out group</span>':'')
@@ -514,6 +527,7 @@ function carpoolsTab(){
         var openT=carM.reduce(function(s,m){ return s+(m.openSeats||0); },0);
         h += '<div class="hintbox plain">🚗 '+esc(carM.map(function(m){return m.name;}).join(", "))+' '+(carM.length>1?"have cars booked":"has a car booked")+' — '+openT+' open seat'+(openT===1?"":"s")+' for this group.</div>';
       }
+      if(dir==="dep") h += depTimeNote(members);
       if(dir==="arr"){
         var hint=rentalHint(members, airport);
         if(hint.kind==="found") h += '<div class="hintbox sun">💡 <strong>'+esc(hint.pick.name)+'</strong> '+(hint.many?"(and others) are":"is")+' round-trip via '+esc(airport)+' — likely cheapest to hold the rental (no drop-off fee).</div>';
@@ -532,7 +546,8 @@ function carpoolsTab(){
     ungrouped.forEach(function(e){
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><div><strong style="font-size:14px">'+esc(e.name)+'</strong>'
          + '<p class="muted" style="font-size:12px;margin:2px 0 0">'+e.partySize+(e.partySize===1?" person":" people")
-         + (e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seat'+((e.openSeats||0)===1?'':'s'):'')+'</p></div>'
+         + (e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seat'+((e.openSeats||0)===1?'':'s'):'')
+         + (dir==="dep" && e.departureTime?' · 🕐 '+esc(fmtClock(e.departureTime)):'')+'</p></div>'
          + '<button class="btn ghost sm" data-action="start" data-id="'+e.id+'">Start a group</button></div></div>';
     });
     h += '</div>';
@@ -557,6 +572,7 @@ function carpoolsTab(){
         var openT=carM.reduce(function(s,x){ return s+(x.openSeats||0); },0);
         h += '<div class="hintbox plain">🚗 '+openT+' open seat'+(openT===1?"":"s")+' offered in this group.</div>';
       }
+      if(dir==="dep") h += depTimeNote(m);
       h += '<div style="margin-top:10px">'
         + (inThis ? '<button class="btn danger sm" data-action="leave">Leave this group</button>'
                   : '<button class="btn ghost sm" data-action="join" data-gid="'+gid+'">Join this group</button>')
@@ -673,7 +689,7 @@ function adminTab(){
     h += '<div class="card"><div class="row" style="align-items:flex-start"><div>'
       + '<strong style="font-size:16px">'+esc(e.name)+'</strong> <span class="muted">· '+e.partySize+'p</span>'
       + ribbon(e)
-      + '<p class="muted" style="font-size:12px;margin:6px 0 0">In '+esc(fmtDate(e.arrivalDate))+' · Out '+esc(fmtDate(e.departureDate))+' · code '+esc(e.editCode||"")+(e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seats':'')+'</p></div>'
+      + '<p class="muted" style="font-size:12px;margin:6px 0 0">In '+esc(fmtDate(e.arrivalDate))+' · Out '+esc(fmtDate(e.departureDate))+(e.departureTime?' '+esc(fmtClock(e.departureTime)):'')+' · code '+esc(e.editCode||"")+(e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seats':'')+'</p></div>'
       + '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
         + '<button class="btn subtle sm" data-action="edit" data-id="'+e.id+'">Edit</button>'
         + '<button class="btn danger sm" data-action="delete" data-id="'+e.id+'">Delete</button></div></div>'
@@ -719,7 +735,7 @@ function formModal(){
     departureAirport:e.departureAirport||"Paris", departureAirportOther:e.departureAirportOther||"", departureDate:e.departureDate||DEFAULT_DEPARTURE_DATE,
     rentalWillingness:e.rentalWillingness||"maybe",
     hasCar:!!e.hasCar, openSeats:(e.openSeats!=null?e.openSeats:1),
-    contact:e.contact||""
+    contact:e.contact||"", departureTime:e.departureTime||""
   };
   function airportSel(id, val){ return '<select id="'+id+'">'+AIRPORTS.map(function(a){ return '<option'+(a===val?" selected":"")+'>'+a+'</option>'; }).join("")+'</select>'; }
   var h='<div class="overlay" data-action="overlay"><div class="modal" data-stop="1">';
@@ -736,7 +752,8 @@ function formModal(){
   h += '<div class="box"><p class="boxlab">Flying out 🏰→✈</p><div class="two">'
      + '<label class="field" style="margin:0"><span class="lab">Departure airport</span>'+airportSel("f_dA", v.departureAirport)+'</label>'
      + '<label class="field" style="margin:0"><span class="lab">Departure date</span><input id="f_dD" type="date" value="'+esc(v.departureDate)+'"></label></div>'
-     + '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'"></div>';
+     + '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'">'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab">Preferred departure time <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_dT" type="time" value="'+esc(v.departureTime)+'" style="width:160px"><span class="hint">Roughly when you’d like to leave '+esc(VENUE_SHORT)+' for the airport — helps match ride-out times.</span></label></div>';
 
   h += '<label class="field"><span class="lab">Have you already booked a rental car?</span><div class="seg" id="f_hasCar">'
      + '<button type="button" data-hascar="yes" class="'+(v.hasCar?"on":"")+'">Yes, I\'ve booked one</button>'
@@ -899,6 +916,7 @@ function submitForm(){
     arrivalAirport:val("f_aA"), arrivalAirportOther:val("f_aO").trim(), arrivalDate:val("f_aD"),
     departureAirport:val("f_dA"), departureAirportOther:val("f_dO").trim(), departureDate:val("f_dD"),
     contact:val("f_contact").trim(),
+    departureTime:val("f_dT"),
     hasCar:hasCar,
     openSeats: hasCar ? Math.max(0, parseInt(val("f_seats")||"0",10)) : 0,
     rentalWillingness: hasCar ? "yes" : (formWill || (f.entry&&f.entry.rentalWillingness) || "maybe")
