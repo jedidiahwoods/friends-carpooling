@@ -240,7 +240,7 @@ function saveOwned(l){ try { localStorage.setItem(LS_KEY, JSON.stringify(l)); } 
 var state = {
   entries: [], messages: [], loaded: !CONFIGURED, tab: "pool",
   owned: loadOwned(), admin: false, dir: "arr", boardScope: "general",
-  activeId: null, form: null, claimOpen: false, howto: false
+  activeId: null, form: null, claimOpen: false, howto: false, modePick: false
 };
 var HOWTO_KEY = "flcp_howto_seen_v1";
 function seenHowto(){ try { return localStorage.getItem(HOWTO_KEY)==="1"; } catch(e){ return false; } }
@@ -261,14 +261,26 @@ function airportLabel(e, which){
   if (a==="Other") return (which==="arr" ? e.arrivalAirportOther : e.departureAirportOther) || "Other";
   return a;
 }
+function TRAIN_STATION(){ return "Le Creusot"; }
+function locLabel(e, which){
+  var mode = which==="arr" ? e.arrivalMode : e.departureMode;
+  if(mode==="train") return TRAIN_STATION();
+  return airportLabel(e, which);
+}
+function locIcon(e, which){
+  var mode = which==="arr" ? e.arrivalMode : e.departureMode;
+  return mode==="train" ? "🚆" : "✈";
+}
+function arrLoc(e){ return e.arrivalMode==="train" ? "Le Creusot" : (e.arrivalAirport==="Other" ? "O:"+norm(e.arrivalAirportOther) : e.arrivalAirport); }
+function depLoc(e){ return e.departureMode==="train" ? "Le Creusot" : (e.departureAirport==="Other" ? "O:"+norm(e.departureAirportOther) : e.departureAirport); }
 function fmtDate(d){
   if(!d) return "";
   var dt = new Date(d+"T00:00:00");
   if(isNaN(dt)) return d;
   return dt.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 }
-function arrKey(e){ return (e.arrivalAirport==="Other" ? "O:"+norm(e.arrivalAirportOther) : e.arrivalAirport)+"|"+e.arrivalDate; }
-function depKey(e){ return (e.departureAirport==="Other" ? "O:"+norm(e.departureAirportOther) : e.departureAirport)+"|"+e.departureDate; }
+function arrKey(e){ return arrLoc(e)+"|"+e.arrivalDate; }
+function depKey(e){ return depLoc(e)+"|"+e.departureDate; }
 function ownedIds(){ var s={}; state.owned.forEach(function(o){ s[o.id]=1; }); return s; }
 function isOwned(e){ return !!ownedIds()[e.id]; }
 function myEntries(){ var o=ownedIds(); return state.entries.filter(function(e){ return o[e.id]; }); }
@@ -291,6 +303,7 @@ function addEntry(f){
   var code = firstName(f.name) || genCode();
   db.collection("entries").add({
     name:f.name, partySize:f.partySize,
+    arrivalMode:f.arrivalMode, departureMode:f.departureMode, arrivalTime:f.arrivalTime||"", needsShuttle:!!f.needsShuttle, brunch:!!f.brunch,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
     rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", departureTime:f.departureTime||"", arrivalGroupId:null, departureGroupId:null,
@@ -305,6 +318,7 @@ function addEntry(f){
 function saveEdit(id, f){
   update(id, {
     name:f.name, partySize:f.partySize,
+    arrivalMode:f.arrivalMode, departureMode:f.departureMode, arrivalTime:f.arrivalTime||"", needsShuttle:!!f.needsShuttle, brunch:!!f.brunch,
     arrivalAirport:f.arrivalAirport, arrivalAirportOther:f.arrivalAirportOther, arrivalDate:f.arrivalDate,
     departureAirport:f.departureAirport, departureAirportOther:f.departureAirportOther, departureDate:f.departureDate,
     rentalWillingness:f.rentalWillingness, hasCar:f.hasCar, openSeats:f.openSeats, contact:f.contact||"", departureTime:f.departureTime||"", editCode:firstName(f.name)
@@ -375,9 +389,9 @@ function rentalHint(members, airport){
    Render
    ================================================================= */
 function ribbon(e){
-  return '<div class="ribbon"><span>✈ '+esc(airportLabel(e,"arr"))+'</span>'
+  return '<div class="ribbon"><span>'+locIcon(e,"arr")+' '+esc(locLabel(e,"arr"))+'</span>'
        + '<span class="dash">———</span><span>🏰 '+esc(VENUE_SHORT)+'</span>'
-       + '<span class="dash">———</span><span>'+esc(airportLabel(e,"dep"))+' ✈</span></div>';
+       + '<span class="dash">———</span><span>'+esc(locLabel(e,"dep"))+' '+locIcon(e,"dep")+'</span></div>';
 }
 
 function digitsOnly(s){ return (s||"").replace(/[^0-9]/g,""); }
@@ -409,9 +423,25 @@ function fmtClock(t){
 }
 function depTimeNote(members){
   var uniq=[];
-  members.forEach(function(m){ if(m.departureTime){ var t=fmtClock(m.departureTime); if(uniq.indexOf(t)<0) uniq.push(t); } });
+  members.forEach(function(m){ if(m.departureTime){ var t=fmtClock(m.departureTime)+(m.departureMode==="train"?" 🚆":""); if(uniq.indexOf(t)<0) uniq.push(t); } });
   if(!uniq.length) return '';
-  return '<div class="hintbox plain">🕐 Preferred departure: '+esc(uniq.join(", "))+'</div>';
+  return '<div class="hintbox plain">🕐 Departure times: '+esc(uniq.join(", "))+'</div>';
+}
+function arrTimeNote(members){
+  var uniq=[];
+  members.forEach(function(m){ if(m.arrivalTime){ var t=fmtClock(m.arrivalTime)+(m.arrivalMode==="train"?" 🚆":""); if(uniq.indexOf(t)<0) uniq.push(t); } });
+  if(!uniq.length) return '';
+  return '<div class="hintbox plain">🕐 Arrival times: '+esc(uniq.join(", "))+'</div>';
+}
+function shuttleNote(members){
+  var n=0; members.forEach(function(m){ if(m.arrivalMode==="train" && m.needsShuttle) n+=(m.partySize||1); });
+  if(!n) return '';
+  return '<div class="hintbox sun">🚐 '+n+' '+(n===1?"person needs":"people need")+' a shuttle from Le Creusot.</div>';
+}
+function brunchNote(members){
+  var n=0; members.forEach(function(m){ if(m.brunch) n+=(m.partySize||1); });
+  if(!n) return '';
+  return '<div class="hintbox plain">🥐 '+n+' staying for brunch (9am).</div>';
 }
 
 function carChip(e){
@@ -432,9 +462,11 @@ function entryCard(e){
       + '<span class="chip plain">'+e.partySize+(e.partySize===1?" person":" people")+'</span></div>'
       + ribbon(e)
       + '<div class="chips">'
-        + '<span class="chip">In · '+esc(fmtDate(e.arrivalDate))+'</span>'
+        + '<span class="chip">In · '+esc(fmtDate(e.arrivalDate))+(e.arrivalTime?' · '+esc(fmtClock(e.arrivalTime)):'')+'</span>'
         + '<span class="chip">Out · '+esc(fmtDate(e.departureDate))+(e.departureTime?' · '+esc(fmtClock(e.departureTime)):'')+'</span>'
         + carChip(e)
+        + (e.arrivalMode==="train" && e.needsShuttle?'<span class="chip sun">🚐 Needs shuttle</span>':'')
+        + (e.brunch?'<span class="chip">🥐 Brunch</span>':'')
         + (e.arrivalGroupId?'<span class="chip go">In ride-in group</span>':'')
         + (e.departureGroupId?'<span class="chip go">In ride-out group</span>':'')
       + '</div>'
@@ -486,8 +518,8 @@ function carpoolsTab(){
   h += '<div class="pill"><button data-action="dir" data-dir="arr" class="'+(dir==="arr"?"on":"")+'">Ride in ✈→🏰</button>'
      + '<button data-action="dir" data-dir="dep" class="'+(dir==="dep"?"on":"")+'">Ride out 🏰→✈</button></div>';
   h += '<p class="muted" style="font-size:14px;margin:0">'
-     + (dir==="arr"?"Group up with people who share your arrival airport + date for the drive to "+esc(VENUE_NAME)+"."
-                   :"Group up with people who share your departure airport + date for the drive back.")+'</p>';
+     + (dir==="arr"?"Group up with people arriving at the same place (airport or Le Creusot station) on the same day, for the ride to "+esc(VENUE_NAME)+"."
+                   :"Group up with people leaving from the same place on the same day, for the ride back.")+'</p>';
 
   if(!me){
     h += '<div class="card dash"><p style="font-weight:600;margin:0">Add yourself to the pool first.</p>'
@@ -503,7 +535,7 @@ function carpoolsTab(){
        + '</select></label>';
   }
 
-  var place = airportLabel(me, dir==="arr"?"arr":"dep")+" · "+fmtDate(dir==="arr"?me.arrivalDate:me.departureDate);
+  var place = locLabel(me, dir==="arr"?"arr":"dep")+" · "+fmtDate(dir==="arr"?me.arrivalDate:me.departureDate);
   h += '<div class="banner go">You\'re <strong>'+esc(me.name)+'</strong> · '+esc(place)+' — showing everyone who matches.</div>';
 
   var myKey=keyFn(me);
@@ -518,7 +550,7 @@ function carpoolsTab(){
   if(compatGroups.length){
     h += '<div><p class="box boxlab" style="background:none;border:0;padding:0;margin-bottom:8px">Groups you can join</p>';
     compatGroups.forEach(function(pair){
-      var members=pair[1], airport=airportLabel(members[0], dir==="arr"?"arr":"dep");
+      var members=pair[1], airport=locLabel(members[0], dir==="arr"?"arr":"dep");
       var seat=seatInfo(members), inThis=members.some(function(m){return m.id===me.id;});
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><strong style="font-size:14px">'+esc(members.map(function(m){return m.name;}).join(", "))+'</strong>'
          + '<span class="chip '+seat.tone+'">'+seat.text+'</span></div>';
@@ -528,7 +560,10 @@ function carpoolsTab(){
         h += '<div class="hintbox plain">🚗 '+esc(carM.map(function(m){return m.name;}).join(", "))+' '+(carM.length>1?"have cars booked":"has a car booked")+' — '+openT+' open seat'+(openT===1?"":"s")+' for this group.</div>';
       }
       if(dir==="dep") h += depTimeNote(members);
-      if(dir==="arr"){
+      if(dir==="dep") h += brunchNote(members);
+      if(dir==="arr") h += arrTimeNote(members);
+      if(dir==="arr") h += shuttleNote(members);
+      if(dir==="arr" && members[0].arrivalMode!=="train"){
         var hint=rentalHint(members, airport);
         if(hint.kind==="found") h += '<div class="hintbox sun">💡 <strong>'+esc(hint.pick.name)+'</strong> '+(hint.many?"(and others) are":"is")+' round-trip via '+esc(airport)+' — likely cheapest to hold the rental (no drop-off fee).</div>';
         else h += '<div class="hintbox plain">Heads up: no one here is round-trip via '+esc(airport)+', so whoever holds the car may pay a one-way drop-off fee. Worth coordinating.</div>';
@@ -547,7 +582,8 @@ function carpoolsTab(){
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><div><strong style="font-size:14px">'+esc(e.name)+'</strong>'
          + '<p class="muted" style="font-size:12px;margin:2px 0 0">'+e.partySize+(e.partySize===1?" person":" people")
          + (e.hasCar?' · 🚗 '+(e.openSeats||0)+' open seat'+((e.openSeats||0)===1?'':'s'):'')
-         + (dir==="dep" && e.departureTime?' · 🕐 '+esc(fmtClock(e.departureTime)):'')+'</p></div>'
+         + (dir==="dep" && e.departureTime?' · 🕐 '+esc(fmtClock(e.departureTime)):'')
+         + (dir==="arr" && e.arrivalTime?' · 🕐 '+esc(fmtClock(e.arrivalTime)):'')+'</p></div>'
          + '<button class="btn ghost sm" data-action="start" data-id="'+e.id+'">Start a group</button></div></div>';
     });
     h += '</div>';
@@ -562,7 +598,7 @@ function carpoolsTab(){
   if(otherKeys.length){
     h += '<div><p class="box boxlab" style="background:none;border:0;padding:0;margin-bottom:8px">Other '+(dir==="arr"?"ride-in":"ride-out")+' groups — you can still join any of these</p>';
     otherKeys.forEach(function(gid){
-      var m=groups[gid], ap=airportLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
+      var m=groups[gid], ap=locLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
       var seat=seatInfo(m), inThis=m.some(function(x){return x.id===me.id;});
       var carM=m.filter(function(x){ return x.hasCar; });
       h += '<div class="card" style="margin-bottom:8px"><div class="row"><div style="min-width:0"><strong style="font-size:14px">'+esc(m.map(function(x){return x.name;}).join(", "))+'</strong>'
@@ -573,6 +609,9 @@ function carpoolsTab(){
         h += '<div class="hintbox plain">🚗 '+openT+' open seat'+(openT===1?"":"s")+' offered in this group.</div>';
       }
       if(dir==="dep") h += depTimeNote(m);
+      if(dir==="dep") h += brunchNote(m);
+      if(dir==="arr") h += arrTimeNote(m);
+      if(dir==="arr") h += shuttleNote(m);
       h += '<div style="margin-top:10px">'
         + (inThis ? '<button class="btn danger sm" data-action="leave">Leave this group</button>'
                   : '<button class="btn ghost sm" data-action="join" data-gid="'+gid+'">Join this group</button>')
@@ -665,7 +704,7 @@ function adminGroupSelect(e, dir){
   var opts='<option value=""'+(cur===""?" selected":"")+'>— Not in a '+(dir==="arr"?"ride-in":"ride-out")+' group —</option>';
   Object.keys(groups).forEach(function(gid){
     var m=groups[gid], names=m.map(function(x){return x.name;}).join(", ");
-    var ap=airportLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
+    var ap=locLabel(m[0], dir==="arr"?"arr":"dep"), dt=fmtDate(dir==="arr"?m[0].arrivalDate:m[0].departureDate);
     opts+='<option value="'+gid+'"'+(cur===gid?" selected":"")+'>'+esc(names+" ("+ap+" · "+dt+")")+'</option>';
   });
   opts+='<option value="__new__">➕ New group (just '+esc(firstName(e.name)||e.name)+')</option>';
@@ -704,6 +743,22 @@ function adminTab(){
   return h;
 }
 
+function modePickerModal(){
+  return '<div class="overlay" data-action="modepick-overlay"><div class="modal" data-stop="1">'
+    + '<h2 style="margin-bottom:2px">Before we add you</h2>'
+    + '<p class="muted" style="font-size:13px;margin:0 0 18px">Two quick questions so we can plan rides and station shuttles.</p>'
+    + '<label class="field"><span class="lab">How are you getting to '+esc(VENUE_NAME)+'?</span><div class="seg" id="mp_a">'
+    +   '<button type="button" data-mpa="carpool" class="'+(pickArrival==="carpool"?"on":"")+'">🚗 Carpooling / driving</button>'
+    +   '<button type="button" data-mpa="train" class="'+(pickArrival==="train"?"on":"")+'">🚆 Arriving by train (Le Creusot)</button>'
+    + '</div></label>'
+    + '<label class="field"><span class="lab">How are you leaving?</span><div class="seg" id="mp_d">'
+    +   '<button type="button" data-mpd="carpool" class="'+(pickDeparture==="carpool"?"on":"")+'">🚗 Carpooling / driving</button>'
+    +   '<button type="button" data-mpd="train" class="'+(pickDeparture==="train"?"on":"")+'">🚆 Leaving by train (Le Creusot)</button>'
+    + '</div></label>'
+    + '<button class="btn primary block" data-action="modepick-continue">Continue →</button>'
+    + '</div></div>';
+}
+
 function howtoModal(){
   var steps=[
     ["📝","Add yourself","Tap “+ Add yourself” and enter your name(s), how many of you, your airports + travel dates, whether you’ve booked a car, and (optionally) your WhatsApp."],
@@ -735,7 +790,11 @@ function formModal(){
     departureAirport:e.departureAirport||"Paris", departureAirportOther:e.departureAirportOther||"", departureDate:e.departureDate||DEFAULT_DEPARTURE_DATE,
     rentalWillingness:e.rentalWillingness||"maybe",
     hasCar:!!e.hasCar, openSeats:(e.openSeats!=null?e.openSeats:1),
-    contact:e.contact||"", departureTime:e.departureTime||""
+    contact:e.contact||"", departureTime:e.departureTime||"", arrivalTime:e.arrivalTime||"",
+    arrivalMode: e.arrivalMode || (f.prefill&&f.prefill.arrivalMode) || "carpool",
+    departureMode: e.departureMode || (f.prefill&&f.prefill.departureMode) || "carpool",
+    needsShuttle: (e.needsShuttle!=null ? e.needsShuttle : true),
+    brunch: (e.brunch!=null ? e.brunch : true)
   };
   function airportSel(id, val){ return '<select id="'+id+'">'+AIRPORTS.map(function(a){ return '<option'+(a===val?" selected":"")+'>'+a+'</option>'; }).join("")+'</select>'; }
   var h='<div class="overlay" data-action="overlay"><div class="modal" data-stop="1">';
@@ -744,16 +803,39 @@ function formModal(){
   h += '<label class="field"><span class="lab">How many of you?</span><input id="f_party" type="number" min="1" max="12" value="'+v.partySize+'" style="width:110px"><span class="hint">Used to fit people into cars ('+SEATS_PER_CAR+' seats each).</span></label>';
   h += '<label class="field"><span class="lab">Phone / WhatsApp <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_contact" value="'+esc(v.contact)+'" placeholder="+1 555 123 4567"><span class="hint">Include your country code (the + and number). Only people who\'ve joined the pool can see it — handy for coordinating rides.</span></label>';
 
-  h += '<div class="box"><p class="boxlab">Flying in ✈</p><div class="two">'
-     + '<label class="field" style="margin:0"><span class="lab">Arrival airport</span>'+airportSel("f_aA", v.arrivalAirport)+'</label>'
-     + '<label class="field" style="margin:0"><span class="lab">Arrival date</span><input id="f_aD" type="date" value="'+esc(v.arrivalDate)+'"></label></div>'
-     + '<input id="f_aO" placeholder="Which airport / station?" value="'+esc(v.arrivalAirportOther)+'" style="margin-top:12px;display:'+(v.arrivalAirport==="Other"?"block":"none")+'"></div>';
+  h += '<div class="box"><p class="boxlab">Getting there</p>'
+     + '<div class="seg" id="f_aMode" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+     +   '<button type="button" data-amode="carpool" class="'+(v.arrivalMode==="train"?"":"on")+'">🚗 Carpool / drive</button>'
+     +   '<button type="button" data-amode="train" class="'+(v.arrivalMode==="train"?"on":"")+'">🚆 Train to Le Creusot</button>'
+     + '</div>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab">Arrival date</span><input id="f_aD" type="date" value="'+esc(v.arrivalDate)+'"></label>'
+     + '<div id="aAirportWrap" style="margin-top:12px;display:'+(v.arrivalMode==="train"?"none":"block")+'">'
+     +   '<label class="field" style="margin:0"><span class="lab">Arrival airport</span>'+airportSel("f_aA", v.arrivalAirport)+'</label>'
+     +   '<input id="f_aO" placeholder="Which airport / station?" value="'+esc(v.arrivalAirportOther)+'" style="margin-top:12px;display:'+(v.arrivalAirport==="Other"?"block":"none")+'"></div>'
+     + '<div id="aTrainWrap" style="margin-top:12px;display:'+(v.arrivalMode==="train"?"block":"none")+'"><p class="muted" style="font-size:13px;margin:0">📍 Arriving at <strong>Le Creusot (TGV station)</strong> — we\'ll coordinate a ride to the château.</p>'
+     +   '<label class="field" style="margin:14px 0 0"><span class="lab">Do you need a shuttle from the station to the château?</span><div class="seg" id="f_shuttle">'
+     +     '<button type="button" data-shuttle="yes" class="'+(v.needsShuttle?"on":"")+'">🚐 Yes please — I\'ll need a shuttle</button>'
+     +     '<button type="button" data-shuttle="no" class="'+(v.needsShuttle?"":"on")+'">No, I\'ve got my own ride</button>'
+     +   '</div></label></div>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="aTimeLab">'+(v.arrivalMode==="train"?"Train arrival time at Le Creusot":"Estimated arrival time")+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_aT" type="time" value="'+esc(v.arrivalTime)+'" style="width:160px"></label>'
+     + '</div>';
 
-  h += '<div class="box"><p class="boxlab">Flying out 🏰→✈</p><div class="two">'
-     + '<label class="field" style="margin:0"><span class="lab">Departure airport</span>'+airportSel("f_dA", v.departureAirport)+'</label>'
-     + '<label class="field" style="margin:0"><span class="lab">Departure date</span><input id="f_dD" type="date" value="'+esc(v.departureDate)+'"></label></div>'
-     + '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'">'
-     + '<label class="field" style="margin:12px 0 0"><span class="lab">Preferred departure time <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_dT" type="time" value="'+esc(v.departureTime)+'" style="width:160px"><span class="hint">Roughly when you’d like to leave '+esc(VENUE_SHORT)+' for the airport — helps match ride-out times.</span></label></div>';
+  h += '<div class="box"><p class="boxlab">Getting back</p>'
+     + '<div class="seg" id="f_dMode" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+     +   '<button type="button" data-dmode="carpool" class="'+(v.departureMode==="train"?"":"on")+'">🚗 Carpool / drive</button>'
+     +   '<button type="button" data-dmode="train" class="'+(v.departureMode==="train"?"on":"")+'">🚆 Train from Le Creusot</button>'
+     + '</div>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab">Departure date</span><input id="f_dD" type="date" value="'+esc(v.departureDate)+'"></label>'
+     + '<div id="dAirportWrap" style="margin-top:12px;display:'+(v.departureMode==="train"?"none":"block")+'">'
+     +   '<label class="field" style="margin:0"><span class="lab">Departure airport</span>'+airportSel("f_dA", v.departureAirport)+'</label>'
+     +   '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'"></div>'
+     + '<div id="dTrainWrap" style="margin-top:12px;display:'+(v.departureMode==="train"?"block":"none")+'"><p class="muted" style="font-size:13px;margin:0">📍 Leaving from <strong>Le Creusot (TGV station)</strong> — we\'ll coordinate a ride from the château.</p></div>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="dTimeLab">'+(v.departureMode==="train"?"Train departure time from Le Creusot":"Estimated departure time")+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_dT" type="time" value="'+esc(v.departureTime)+'" style="width:160px"><span class="hint" id="dTimeHint">'+(v.departureMode==="train"?"Your train\'s scheduled departure — helps us shuttle you to the station on time.":"Roughly when you\'d like to leave "+esc(VENUE_SHORT)+" for the airport.")+'</span></label>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab">Staying for brunch? <span class="muted" style="font-weight:400">(9am)</span></span><div class="seg" id="f_brunch" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+     +   '<button type="button" data-brunch="yes" class="'+(v.brunch?"on":"")+'">🥐 Yes, staying</button>'
+     +   '<button type="button" data-brunch="no" class="'+(v.brunch?"":"on")+'">No</button>'
+     + '</div></label>'
+     + '</div>';
 
   h += '<label class="field"><span class="lab">Have you already booked a rental car?</span><div class="seg" id="f_hasCar">'
      + '<button type="button" data-hascar="yes" class="'+(v.hasCar?"on":"")+'">Yes, I\'ve booked one</button>'
@@ -803,6 +885,7 @@ function render(){
   }
   html += '<main><div class="wrap">'+body+'</div></main>';
   if(state.form) html += formModal();
+  if(state.modePick) html += modePickerModal();
   if(state.howto) html += howtoModal();
 
   app.innerHTML = html;
@@ -811,6 +894,13 @@ function render(){
 /* current form field temp value for willingness (segmented control) */
 var formWill = null;
 var formHasCar = null;
+var formAMode = null;
+var formDMode = null;
+var formShuttle = null;
+var formBrunch = null;
+var pickArrival = "carpool";
+var pickDeparture = "carpool";
+function openAddFlow(){ pickArrival="carpool"; pickDeparture="carpool"; state.modePick=true; render(); }
 
 /* =================================================================
    Events (delegation)
@@ -823,6 +913,57 @@ document.addEventListener("click", function(ev){
     formWill = w.getAttribute("data-will");
     var seg=document.getElementById("f_will");
     if(seg){ Array.prototype.forEach.call(seg.children, function(b){ b.className = (b.getAttribute("data-will")===formWill?"on":""); }); }
+    return;
+  }
+  var mpa = ev.target.closest("[data-mpa]");
+  if(mpa){
+    pickArrival = mpa.getAttribute("data-mpa");
+    var sm=document.getElementById("mp_a");
+    if(sm){ Array.prototype.forEach.call(sm.children, function(b){ b.className=(b.getAttribute("data-mpa")===pickArrival?"on":""); }); }
+    return;
+  }
+  var mpd = ev.target.closest("[data-mpd]");
+  if(mpd){
+    pickDeparture = mpd.getAttribute("data-mpd");
+    var smd=document.getElementById("mp_d");
+    if(smd){ Array.prototype.forEach.call(smd.children, function(b){ b.className=(b.getAttribute("data-mpd")===pickDeparture?"on":""); }); }
+    return;
+  }
+  var am = ev.target.closest("[data-amode]");
+  if(am){
+    formAMode = am.getAttribute("data-amode");
+    var sa=document.getElementById("f_aMode");
+    if(sa){ Array.prototype.forEach.call(sa.children, function(b){ b.className=(b.getAttribute("data-amode")===formAMode?"on":""); }); }
+    var aw=document.getElementById("aAirportWrap"), tw=document.getElementById("aTrainWrap"), lab=document.getElementById("aTimeLab");
+    if(aw) aw.style.display = formAMode==="train"?"none":"block";
+    if(tw) tw.style.display = formAMode==="train"?"block":"none";
+    if(lab) lab.innerHTML = (formAMode==="train"?"Train arrival time at Le Creusot":"Estimated arrival time")+' <span class="muted" style="font-weight:400">(optional)</span>';
+    return;
+  }
+  var dm = ev.target.closest("[data-dmode]");
+  if(dm){
+    formDMode = dm.getAttribute("data-dmode");
+    var sd=document.getElementById("f_dMode");
+    if(sd){ Array.prototype.forEach.call(sd.children, function(b){ b.className=(b.getAttribute("data-dmode")===formDMode?"on":""); }); }
+    var dw=document.getElementById("dAirportWrap"), dtw=document.getElementById("dTrainWrap"), dlab=document.getElementById("dTimeLab"), dhint=document.getElementById("dTimeHint");
+    if(dw) dw.style.display = formDMode==="train"?"none":"block";
+    if(dtw) dtw.style.display = formDMode==="train"?"block":"none";
+    if(dlab) dlab.innerHTML = (formDMode==="train"?"Train departure time from Le Creusot":"Estimated departure time")+' <span class="muted" style="font-weight:400">(optional)</span>';
+    if(dhint) dhint.textContent = formDMode==="train"?"Your train's scheduled departure — helps us shuttle you to the station on time.":"Roughly when you'd like to leave for the airport.";
+    return;
+  }
+  var sh = ev.target.closest("[data-shuttle]");
+  if(sh){
+    formShuttle = sh.getAttribute("data-shuttle");
+    var ss=document.getElementById("f_shuttle");
+    if(ss){ Array.prototype.forEach.call(ss.children, function(b){ b.className=(b.getAttribute("data-shuttle")===formShuttle?"on":""); }); }
+    return;
+  }
+  var br = ev.target.closest("[data-brunch]");
+  if(br){
+    formBrunch = br.getAttribute("data-brunch");
+    var bs=document.getElementById("f_brunch");
+    if(bs){ Array.prototype.forEach.call(bs.children, function(b){ b.className=(b.getAttribute("data-brunch")===formBrunch?"on":""); }); }
     return;
   }
   var hc = ev.target.closest("[data-hascar]");
@@ -854,8 +995,14 @@ document.addEventListener("click", function(ev){
   else if(a==="howto-open"){ state.howto=true; render(); }
   else if(a==="howto-close"){ state.howto=false; render(); }
   else if(a==="howto-overlay"){ if(ev.target.closest("[data-stop]")) return; state.howto=false; render(); }
-  else if(a==="add"){ state.form={mode:"add"}; formWill=null; formHasCar=null; render(); }
-  else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; formHasCar=null; render(); }
+  else if(a==="modepick-continue"){
+    state.modePick=false;
+    state.form={mode:"add", prefill:{arrivalMode:pickArrival, departureMode:pickDeparture}};
+    formWill=null; formHasCar=null; formAMode=null; formDMode=null; formShuttle=null; formBrunch=null; render();
+  }
+  else if(a==="modepick-overlay"){ if(ev.target.closest("[data-stop]")) return; state.modePick=false; render(); }
+  else if(a==="add"){ openAddFlow(); }
+  else if(a==="edit"){ state.form={mode:"edit", entry:find(id)}; formWill=null; formHasCar=null; formAMode=null; formDMode=null; formShuttle=null; formBrunch=null; render(); }
   else if(a==="delete"){ var e=find(id); if(e) deleteEntry(e); }
   else if(a==="claim-open"){ state.claimOpen=true; render(); }
   else if(a==="claim-submit"){ var c=document.getElementById("claimCode"); claimByCode(c?c.value:""); }
@@ -910,10 +1057,15 @@ function val(id){ var el=document.getElementById(id); return el?el.value:""; }
 function submitForm(){
   var f=state.form;
   var hasCar = (formHasCar!=null) ? (formHasCar==="yes") : !!(f.entry&&f.entry.hasCar);
+  var aMode = formAMode || (f.prefill&&f.prefill.arrivalMode) || (f.entry&&f.entry.arrivalMode) || "carpool";
+  var dMode = formDMode || (f.prefill&&f.prefill.departureMode) || (f.entry&&f.entry.departureMode) || "carpool";
+  var needsShuttle = aMode==="train" ? (formShuttle!=null ? formShuttle==="yes" : (f.entry&&f.entry.needsShuttle!=null ? f.entry.needsShuttle : true)) : false;
+  var brunch = formBrunch!=null ? formBrunch==="yes" : (f.entry&&f.entry.brunch!=null ? f.entry.brunch : true);
   var data={
     name:val("f_name").trim(),
     partySize:Math.max(1, parseInt(val("f_party")||"1",10)),
-    arrivalAirport:val("f_aA"), arrivalAirportOther:val("f_aO").trim(), arrivalDate:val("f_aD"),
+    arrivalMode:aMode, departureMode:dMode, needsShuttle:needsShuttle, brunch:brunch,
+    arrivalAirport:val("f_aA"), arrivalAirportOther:val("f_aO").trim(), arrivalDate:val("f_aD"), arrivalTime:val("f_aT"),
     departureAirport:val("f_dA"), departureAirportOther:val("f_dO").trim(), departureDate:val("f_dD"),
     contact:val("f_contact").trim(),
     departureTime:val("f_dT"),
@@ -922,8 +1074,8 @@ function submitForm(){
     rentalWillingness: hasCar ? "yes" : (formWill || (f.entry&&f.entry.rentalWillingness) || "maybe")
   };
   if(!data.name){ toast("Please add your name(s)."); return; }
-  if(data.arrivalAirport==="Other" && !data.arrivalAirportOther){ toast("Enter your arrival airport."); return; }
-  if(data.departureAirport==="Other" && !data.departureAirportOther){ toast("Enter your departure airport."); return; }
+  if(data.arrivalMode!=="train" && data.arrivalAirport==="Other" && !data.arrivalAirportOther){ toast("Enter your arrival airport."); return; }
+  if(data.departureMode!=="train" && data.departureAirport==="Other" && !data.departureAirportOther){ toast("Enter your departure airport."); return; }
   if(f.mode==="add") addEntry(data); else saveEdit(f.entry.id, data);
 }
 
