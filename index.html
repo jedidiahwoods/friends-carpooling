@@ -817,7 +817,7 @@ function formModal(){
      +     '<button type="button" data-shuttle="yes" class="'+(v.needsShuttle?"on":"")+'">🚐 Yes please — I\'ll need a shuttle</button>'
      +     '<button type="button" data-shuttle="no" class="'+(v.needsShuttle?"":"on")+'">No, I\'ve got my own ride</button>'
      +   '</div></label></div>'
-     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="aTimeLab">'+(v.arrivalMode==="train"?"Train arrival time at Le Creusot":"Estimated arrival time")+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_aT" type="time" value="'+esc(v.arrivalTime)+'" style="width:160px"></label>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="aTimeLab">'+(v.arrivalMode==="train"?"Train arrival time at Le Creusot station":"Estimated arrival time at "+esc(VENUE_NAME))+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_aT" type="time" value="'+esc(v.arrivalTime)+'" style="width:160px"><span class="hint" id="aTimeHint">'+(v.arrivalMode==="train"?"Your train’s scheduled arrival at Le Creusot — not your flight landing time.":"Roughly when you’ll reach the château — not your airport landing time.")+'</span></label>'
      + '</div>';
 
   h += '<div class="box"><p class="boxlab">Getting back</p>'
@@ -830,7 +830,7 @@ function formModal(){
      +   '<label class="field" style="margin:0"><span class="lab">Departure airport</span>'+airportSel("f_dA", v.departureAirport)+'</label>'
      +   '<input id="f_dO" placeholder="Which airport / station?" value="'+esc(v.departureAirportOther)+'" style="margin-top:12px;display:'+(v.departureAirport==="Other"?"block":"none")+'"></div>'
      + '<div id="dTrainWrap" style="margin-top:12px;display:'+(v.departureMode==="train"?"block":"none")+'"><p class="muted" style="font-size:13px;margin:0">📍 Leaving from <strong>Le Creusot (TGV station)</strong> — we\'ll coordinate a ride from the château.</p></div>'
-     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="dTimeLab">'+(v.departureMode==="train"?"Train departure time from Le Creusot":"Estimated departure time")+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_dT" type="time" value="'+esc(v.departureTime)+'" style="width:160px"><span class="hint" id="dTimeHint">'+(v.departureMode==="train"?"Your train\'s scheduled departure — helps us shuttle you to the station on time.":"Roughly when you\'d like to leave "+esc(VENUE_SHORT)+" for the airport.")+'</span></label>'
+     + '<label class="field" style="margin:12px 0 0"><span class="lab" id="dTimeLab">'+(v.departureMode==="train"?"Train departure time from Le Creusot station":"Estimated departure time from "+esc(VENUE_NAME))+' <span class="muted" style="font-weight:400">(optional)</span></span><input id="f_dT" type="time" value="'+esc(v.departureTime)+'" style="width:160px"><span class="hint" id="dTimeHint">'+(v.departureMode==="train"?"Your train’s scheduled departure — helps us shuttle you to the station on time.":"Roughly when you’ll leave the château — not your flight time.")+'</span></label>'
      + '<label class="field" style="margin:12px 0 0"><span class="lab">Staying for brunch? <span class="muted" style="font-weight:400">(9am)</span></span><div class="seg" id="f_brunch" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
      +   '<button type="button" data-brunch="yes" class="'+(v.brunch?"on":"")+'">🥐 Yes, staying</button>'
      +   '<button type="button" data-brunch="no" class="'+(v.brunch?"":"on")+'">No</button>'
@@ -934,10 +934,11 @@ document.addEventListener("click", function(ev){
     formAMode = am.getAttribute("data-amode");
     var sa=document.getElementById("f_aMode");
     if(sa){ Array.prototype.forEach.call(sa.children, function(b){ b.className=(b.getAttribute("data-amode")===formAMode?"on":""); }); }
-    var aw=document.getElementById("aAirportWrap"), tw=document.getElementById("aTrainWrap"), lab=document.getElementById("aTimeLab");
+    var aw=document.getElementById("aAirportWrap"), tw=document.getElementById("aTrainWrap"), lab=document.getElementById("aTimeLab"), ahint=document.getElementById("aTimeHint");
     if(aw) aw.style.display = formAMode==="train"?"none":"block";
     if(tw) tw.style.display = formAMode==="train"?"block":"none";
-    if(lab) lab.innerHTML = (formAMode==="train"?"Train arrival time at Le Creusot":"Estimated arrival time")+' <span class="muted" style="font-weight:400">(optional)</span>';
+    if(lab) lab.innerHTML = (formAMode==="train"?"Train arrival time at Le Creusot station":"Estimated arrival time at "+VENUE_NAME)+' <span class="muted" style="font-weight:400">(optional)</span>';
+    if(ahint) ahint.textContent = formAMode==="train"?"Your train’s scheduled arrival at Le Creusot — not your flight landing time.":"Roughly when you’ll reach the château — not your airport landing time.";
     return;
   }
   var dm = ev.target.closest("[data-dmode]");
@@ -948,8 +949,8 @@ document.addEventListener("click", function(ev){
     var dw=document.getElementById("dAirportWrap"), dtw=document.getElementById("dTrainWrap"), dlab=document.getElementById("dTimeLab"), dhint=document.getElementById("dTimeHint");
     if(dw) dw.style.display = formDMode==="train"?"none":"block";
     if(dtw) dtw.style.display = formDMode==="train"?"block":"none";
-    if(dlab) dlab.innerHTML = (formDMode==="train"?"Train departure time from Le Creusot":"Estimated departure time")+' <span class="muted" style="font-weight:400">(optional)</span>';
-    if(dhint) dhint.textContent = formDMode==="train"?"Your train's scheduled departure — helps us shuttle you to the station on time.":"Roughly when you'd like to leave for the airport.";
+    if(dlab) dlab.innerHTML = (formDMode==="train"?"Train departure time from Le Creusot station":"Estimated departure time from "+VENUE_NAME)+' <span class="muted" style="font-weight:400">(optional)</span>';
+    if(dhint) dhint.textContent = formDMode==="train"?"Your train’s scheduled departure — helps us shuttle you to the station on time.":"Roughly when you’ll leave the château — not your flight time.";
     return;
   }
   var sh = ev.target.closest("[data-shuttle]");
